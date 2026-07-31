@@ -29,6 +29,12 @@ def _numeric_chat_id(chat_id: Any) -> int | None:
         return None
 
 
+def _status_value(member_or_status: Any) -> str:
+    raw = getattr(member_or_status, "status", member_or_status)
+    value = getattr(raw, "value", raw)
+    return str(value or "").strip().lower()
+
+
 def set_bot_admin_status(chat_id: Any, is_admin: bool) -> None:
     numeric = _numeric_chat_id(chat_id)
     if numeric is not None:
@@ -55,7 +61,7 @@ def bot_is_admin_in(chat_id: Any) -> bool:
 
 
 def _is_admin(member: Any) -> bool:
-    return str(getattr(member, "status", "")) in _ADMIN_STATUSES
+    return _status_value(member) in _ADMIN_STATUSES
 
 
 async def resolve_bot_is_admin(
@@ -85,7 +91,7 @@ async def resolve_bot_is_admin(
             _admin_cache[numeric] = False
         return False
 
-    status = str(getattr(member, "status", ""))
+    status = _status_value(member)
     is_admin = status in _ADMIN_STATUSES
     if numeric is not None:
         _admin_cache[numeric] = is_admin
@@ -123,8 +129,8 @@ async def bot_joined_as_member(event: ChatMemberUpdated) -> None:
 @router.my_chat_member()
 async def bot_promoted_to_admin(event: ChatMemberUpdated) -> None:
     """Refresh cached status on every membership-status transition."""
-    old_status = str(getattr(event.old_chat_member, "status", ""))
-    new_status = str(getattr(event.new_chat_member, "status", ""))
+    old_status = _status_value(event.old_chat_member)
+    new_status = _status_value(event.new_chat_member)
 
     if event.chat.type not in ("group", "supergroup"):
         return
@@ -165,7 +171,7 @@ async def god_command(message: Message) -> None:
         await message.answer("Não consegui verificar minhas permissões aqui.")
         return
 
-    status = str(getattr(member, "status", ""))
+    status = _status_value(member)
     is_admin = status in _ADMIN_STATUSES
     set_bot_admin_status(message.chat.id, is_admin)
 
