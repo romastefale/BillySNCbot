@@ -51,9 +51,14 @@ class _MismatchOnceBot(_VerifiableBot):
         return await super().get_my_commands(scope=scope)
 
 
+def _isolate_catalog(monkeypatch) -> None:
+    monkeypatch.setattr(setup_commands, "ensure_allow_runtime", lambda: None)
+    monkeypatch.setattr(setup_commands, "command_is_publicly_enabled", lambda _command: True)
+
+
 def test_setup_commands_raises_when_telegram_readback_does_not_match(monkeypatch) -> None:
     bot = _AlwaysMismatchedBot()
-    monkeypatch.setattr(setup_commands, "ensure_allow_runtime", lambda: None)
+    _isolate_catalog(monkeypatch)
     monkeypatch.setattr(setup_commands, "CODE_OWNER_IDS", {123})
 
     with pytest.raises(setup_commands.CommandMenuSyncError):
@@ -68,7 +73,7 @@ def test_setup_commands_raises_when_telegram_readback_does_not_match(monkeypatch
 
 def test_setup_commands_retries_and_only_returns_after_verified_readback(monkeypatch) -> None:
     bot = _MismatchOnceBot()
-    monkeypatch.setattr(setup_commands, "ensure_allow_runtime", lambda: None)
+    _isolate_catalog(monkeypatch)
     monkeypatch.setattr(setup_commands, "CODE_OWNER_IDS", {123})
     monkeypatch.setattr(setup_commands, "_COMMAND_SYNC_RETRY_SECONDS", 0)
 
@@ -87,7 +92,7 @@ def test_setup_commands_retries_and_only_returns_after_verified_readback(monkeyp
 
 def test_setup_commands_returns_false_in_non_raising_startup_mode(monkeypatch) -> None:
     bot = _AlwaysMismatchedBot()
-    monkeypatch.setattr(setup_commands, "ensure_allow_runtime", lambda: None)
+    _isolate_catalog(monkeypatch)
     monkeypatch.setattr(setup_commands, "CODE_OWNER_IDS", set())
 
     result = asyncio.run(
