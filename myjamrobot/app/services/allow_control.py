@@ -207,3 +207,18 @@ def install_allow_control_middleware(dispatcher: Dispatcher) -> None:
         return
     dispatcher.update.outer_middleware(AllowControlMiddleware())
     setattr(dispatcher, "_myjam_allow_control_middleware_installed", True)
+
+
+def ensure_allow_runtime() -> None:
+    """Conecta o /allow ao dispatcher global uma única vez durante o startup."""
+    from app.bot.telegram import bot_dispatcher
+
+    install_allow_control_middleware(bot_dispatcher)
+    install_allow_ux_filters()
+    if getattr(bot_dispatcher, "_myjam_allow_router_installed", False):
+        return
+
+    from app.bot.allow import router as allow_router
+
+    bot_dispatcher.include_router(allow_router)
+    setattr(bot_dispatcher, "_myjam_allow_router_installed", True)
