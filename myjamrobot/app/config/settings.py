@@ -131,7 +131,24 @@ SPOTIFY_CLIENT_SECRET = _env(
     legacy=("SPOTIFY_CLIENT_SECRET",),
 )
 
-BASE_URL = _env("TR3_BASE_URL", "http://localhost:8000", legacy=("BASE_URL",)).rstrip("/")
+def _default_base_url() -> str:
+    """Auto-detecta a URL pública no Replit.
+
+    Em desenvolvimento, REPLIT_DOMAINS contém o domínio *.replit.dev;
+    em produção (deploy), contém o domínio *.replit.app. Assim o webhook
+    do Telegram aponta sempre para o ambiente correto sem configuração manual.
+    """
+    domains = os.getenv("REPLIT_DOMAINS", "")
+    for part in domains.split(","):
+        candidate = part.strip()
+        if candidate:
+            return f"https://{candidate}"
+    return "http://localhost:8000"
+
+
+BASE_URL = (
+    _env("TR3_BASE_URL", "", legacy=("BASE_URL",)).strip() or _default_base_url()
+).rstrip("/")
 SPOTIFY_REDIRECT_URI = f"{BASE_URL}/callback"
 SPOTIFY_SCOPES = _env(
     "TR3_SPOTIFY_SCOPES",
