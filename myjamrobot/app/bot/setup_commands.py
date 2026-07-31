@@ -104,15 +104,19 @@ def _to_bot_commands(commands: tuple[CommandDef, ...]) -> list[BotCommand]:
 
 
 def command_scope_summary() -> dict[str, object]:
-    private = [item.command for item in _visible_commands(_PRIVATE_COMMANDS)]
-    owner_private = [item.command for item in _owner_menu_commands()]
+    visible_private = [item.command for item in _visible_commands(_PRIVATE_COMMANDS)]
+    visible_owner = [item.command for item in _owner_menu_commands()]
     return {
-        "public": private,
-        "private": private,
-        "group": [],
-        "group_capabilities": [item.command for item in _GROUP_COMMANDS],
-        "owner_private": owner_private,
+        # Catálogos históricos preservados para testes e scripts existentes.
+        "public": [item.command for item in _PUBLIC_COMMANDS],
+        "private": [item.command for item in _PRIVATE_COMMANDS],
+        "group": [item.command for item in _GROUP_COMMANDS],
+        "owner_private": [item.command for item in _OWNER_PRIVATE_COMMANDS],
         "owner_only": [item.command for item in _OWNER_ONLY_COMMANDS],
+        # Estado efetivamente publicado pelo Telegram nesta versão.
+        "visible_private": visible_private,
+        "group_menu": [],
+        "visible_owner_private": visible_owner,
     }
 
 
