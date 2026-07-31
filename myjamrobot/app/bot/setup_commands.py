@@ -13,6 +13,7 @@ from aiogram.types import (
 )
 
 from app.config.settings import CODE_OWNER_IDS
+from app.services.allow_control import command_is_publicly_enabled, ensure_allow_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ _PRIVATE_COMMANDS: tuple[CommandDef, ...] = (
     CommandDef("monthfm", "Extrato mensal Last.fm"),
 )
 
+# Mantido como catálogo de capacidades de grupo para compatibilidade e auditoria.
+# O menu slash de grupos é deliberadamente vazio; os comandos continuam
+# executáveis manualmente quando estiverem liberados pelo /allow.
 _GROUP_COMMANDS: tuple[CommandDef, ...] = (
     CommandDef("help", "Comandos musicais do grupo"),
     CommandDef("lastfm", "Conectar ou ver Last.fm"),
@@ -76,6 +80,7 @@ _OWNER_ONLY_COMMANDS: tuple[CommandDef, ...] = (
     CommandDef("listening", "Exportar banco completo"),
 )
 
+_ALLOW_COMMAND = CommandDef("allow", "Disponibilidade dos recursos")
 _OWNER_PRIVATE_COMMANDS: tuple[CommandDef, ...] = _PRIVATE_COMMANDS + _OWNER_ONLY_COMMANDS
 
 # Compatibilidade com testes e scripts antigos: "public" representa os comandos
@@ -83,42 +88,60 @@ _OWNER_PRIVATE_COMMANDS: tuple[CommandDef, ...] = _PRIVATE_COMMANDS + _OWNER_ONL
 _PUBLIC_COMMANDS = _PRIVATE_COMMANDS
 
 
+def _visible_commands(commands: tuple[CommandDef, ...]) -> tuple[CommandDef, ...]:
+    return tuple(item for item in commands if command_is_publicly_enabled(item.command))
+
+
+def _owner_menu_commands() -> tuple[CommandDef, ...]:
+    visible = list(_visible_commands(_OWNER_PRIVATE_COMMANDS))
+    if all(item.command != _ALLOW_COMMAND.command for item in visible):
+        visible.append(_ALLOW_COMMAND)
+    return tuple(visible)
+
+
 def _to_bot_commands(commands: tuple[CommandDef, ...]) -> list[BotCommand]:
     return [BotCommand(command=item.command, description=item.description[:256]) for item in commands]
 
 
 def command_scope_summary() -> dict[str, object]:
+    visible_private = [item.command for item in _visible_commands(_PRIVATE_COMMANDS)]
+    visible_owner = [item.command for item in _owner_menu_commands()]
     return {
+        # Catálogos históricos preservados para testes e scripts existentes.
         "public": [item.command for item in _PUBLIC_COMMANDS],
         "private": [item.command for item in _PRIVATE_COMMANDS],
         "group": [item.command for item in _GROUP_COMMANDS],
         "owner_private": [item.command for item in _OWNER_PRIVATE_COMMANDS],
         "owner_only": [item.command for item in _OWNER_ONLY_COMMANDS],
+        # Estado efetivamente publicado pelo Telegram nesta versão.
+        "visible_private": visible_private,
+        "group_menu": [],
+        "visible_owner_private": visible_owner,
     }
 
 
 async def setup_bot_commands(bot: Bot) -> None:
-    private_commands = _to_bot_commands(_PRIVATE_COMMANDS)
-    group_commands = _to_bot_commands(_GROUP_COMMANDS)
-    owner_commands = _to_bot_commands(_OWNER_PRIVATE_COMMANDS)
+    ensure_allow_runtime()
+    private_commands = _to_bot_commands(_visible_commands(_PRIVATE_COMMANDS))
+    owner_commands = _to_bot_commands(_owner_menu_commands())
     try:
-        await bot.set_my_commands(private_commands, scope=BotCommandScopeDefault())
+        # Sem comandos default, grupos não herdam o catálogo privado ao abrir "/".
+        await bot.delete_my_commands(scope=BotCommandScopeDefault())
         await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
-        await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+        await bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
         logger.info(
-            "BOT_COMMANDS_MUSIC_ONLY_SET | private=%s group=%s owner_ids=%s",
+            "BOT_COMMANDS_ALLOW_SET | private=%s group=0 owner_ids=%s",
             len(private_commands),
-            len(group_commands),
             len(CODE_OWNER_IDS),
         )
     except Exception:
-        logger.warning("BOT_COMMANDS_MUSIC_ONLY_FAILED", exc_info=True)
+        logger.warning("BOT_COMMANDS_ALLOW_FAILED", exc_info=True)
         return
 
     for owner_id in CODE_OWNER_IDS:
         try:
             await bot.set_my_commands(owner_commands, scope=BotCommandScopeChat(chat_id=owner_id))
         except Exception:
-            logger.warning("BOT_OWNER_COMMANDS_SET_FAILED", exc_info=True)
+            logger.warning("BOT_OWNER_COMMANDS_SET_FAILED owner_id=%s", owner_id, exc_info=True)
         else:
-            logger.info("BOT_OWNER_COMMANDS_SET | count=%s", len(owner_commands))
+            logger.info("BOT_OWNER_COMMANDS_SET | owner_id=%s count=%s", owner_id, len(owner_commands))
