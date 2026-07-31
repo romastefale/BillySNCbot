@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -16,6 +17,13 @@ from app.config.settings import CODE_OWNER_IDS
 from app.services.allow_control import command_is_publicly_enabled, ensure_allow_runtime
 
 logger = logging.getLogger(__name__)
+
+_COMMAND_SYNC_ATTEMPTS = 3
+_COMMAND_SYNC_RETRY_SECONDS = 0.5
+
+
+class CommandMenuSyncError(RuntimeError):
+    """Raised when Telegram does not confirm the expected command menu."""
 
 
 @dataclass(frozen=True)
@@ -123,6 +131,54 @@ def _to_bot_commands(commands: tuple[CommandDef, ...]) -> list[BotCommand]:
     return [BotCommand(command=item.command, description=item.description[:256]) for item in commands]
 
 
+def _command_signature(commands: list[BotCommand] | tuple[BotCommand, ...]) -> tuple[tuple[str, str], ...]:
+    return tuple((item.command, item.description) for item in commands)
+
+
+async def _verify_scope(bot: Bot, *, scope, expected: list[BotCommand], label: str) -> None:
+    actual = await bot.get_my_commands(scope=scope)
+    expected_signature = _command_signature(expected)
+    actual_signature = _command_signature(actual)
+    if actual_signature != expected_signature:
+        raise CommandMenuSyncError(
+            f"Telegram command menu mismatch for {label}: "
+            f"expected={expected_signature!r} actual={actual_signature!r}"
+        )
+
+
+async def _publish_and_verify(
+    bot: Bot,
+    *,
+    private_commands: list[BotCommand],
+    owner_commands: list[BotCommand],
+) -> None:
+    default_scope = BotCommandScopeDefault()
+    private_scope = BotCommandScopeAllPrivateChats()
+    group_scope = BotCommandScopeAllGroupChats()
+
+    # Sem comandos default, grupos não herdam o catálogo privado ao abrir "/".
+    await bot.delete_my_commands(scope=default_scope)
+    await bot.set_my_commands(private_commands, scope=private_scope)
+    await bot.delete_my_commands(scope=group_scope)
+
+    # A API pode aceitar a chamada sem que o estado observado corresponda ao
+    # esperado. Ler os escopos de volta elimina falso positivo no startup e no
+    # painel /allow.
+    await _verify_scope(bot, scope=default_scope, expected=[], label="default")
+    await _verify_scope(bot, scope=private_scope, expected=private_commands, label="private")
+    await _verify_scope(bot, scope=group_scope, expected=[], label="groups")
+
+    for owner_id in sorted(int(value) for value in CODE_OWNER_IDS):
+        owner_scope = BotCommandScopeChat(chat_id=owner_id)
+        await bot.set_my_commands(owner_commands, scope=owner_scope)
+        await _verify_scope(
+            bot,
+            scope=owner_scope,
+            expected=owner_commands,
+            label=f"owner:{owner_id}",
+        )
+
+
 def command_scope_summary() -> dict[str, object]:
     visible_private = [item.command for item in private_command_definitions(is_owner=False)]
     visible_owner = [item.command for item in private_command_definitions(is_owner=True)]
@@ -140,28 +196,58 @@ def command_scope_summary() -> dict[str, object]:
     }
 
 
-async def setup_bot_commands(bot: Bot) -> None:
+async def setup_bot_commands(
+    bot: Bot,
+    *,
+    attempts: int = _COMMAND_SYNC_ATTEMPTS,
+    raise_on_error: bool = False,
+) -> bool:
+    """Publish command menus and confirm the exact state returned by Telegram.
+
+    Startup uses the default non-raising mode so a transient menu failure does
+    not take the webhook offline. Interactive /allow operations use
+    ``raise_on_error=True`` and only confirm success after Telegram readback.
+    """
     ensure_allow_runtime()
     private_commands = _to_bot_commands(private_command_definitions(is_owner=False))
     owner_commands = _to_bot_commands(private_command_definitions(is_owner=True))
-    try:
-        # Sem comandos default, grupos não herdam o catálogo privado ao abrir "/".
-        await bot.delete_my_commands(scope=BotCommandScopeDefault())
-        await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
-        await bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
+    total_attempts = max(1, int(attempts))
+    last_error: Exception | None = None
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            await _publish_and_verify(
+                bot,
+                private_commands=private_commands,
+                owner_commands=owner_commands,
+            )
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "BOT_COMMANDS_SYNC_ATTEMPT_FAILED attempt=%s/%s error=%s",
+                attempt,
+                total_attempts,
+                f"{type(exc).__name__}: {exc}",
+                exc_info=True,
+            )
+            if attempt < total_attempts:
+                await asyncio.sleep(_COMMAND_SYNC_RETRY_SECONDS * attempt)
+            continue
+
         logger.info(
-            "BOT_COMMANDS_ALLOW_SET | private=%s group=0 owner_ids=%s",
+            "BOT_COMMANDS_SYNC_VERIFIED | private=%s group=0 owner_ids=%s attempt=%s",
             len(private_commands),
             len(CODE_OWNER_IDS),
+            attempt,
         )
-    except Exception:
-        logger.warning("BOT_COMMANDS_ALLOW_FAILED", exc_info=True)
-        return
+        return True
 
-    for owner_id in CODE_OWNER_IDS:
-        try:
-            await bot.set_my_commands(owner_commands, scope=BotCommandScopeChat(chat_id=owner_id))
-        except Exception:
-            logger.warning("BOT_OWNER_COMMANDS_SET_FAILED owner_id=%s", owner_id, exc_info=True)
-        else:
-            logger.info("BOT_OWNER_COMMANDS_SET | owner_id=%s count=%s", owner_id, len(owner_commands))
+    error = CommandMenuSyncError(
+        f"Telegram command menu was not synchronized after {total_attempts} attempt(s)"
+    )
+    if last_error is not None:
+        error.__cause__ = last_error
+    logger.error("BOT_COMMANDS_SYNC_FAILED attempts=%s", total_attempts, exc_info=last_error)
+    if raise_on_error:
+        raise error
+    return False
