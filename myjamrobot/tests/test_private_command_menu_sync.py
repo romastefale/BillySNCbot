@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from app.bot import setup_commands
 
 
+ROOT = Path(__file__).resolve().parents[1]
+ALLOW_CONTROL_SRC = (ROOT / "app" / "services" / "allow_control.py").read_text(encoding="utf-8")
 _HELP_COMMAND_RE = re.compile(r"<code>/([a-z0-9_]+)</code>")
 
 
@@ -63,3 +66,8 @@ def test_private_catalog_has_no_duplicate_commands() -> None:
     for is_owner in (False, True):
         names = _command_names(is_owner=is_owner)
         assert len(names) == len(set(names))
+
+
+def test_private_help_runtime_uses_shared_catalog() -> None:
+    assert "from app.bot.setup_commands import private_help_text" in ALLOW_CONTROL_SRC
+    assert "return private_help_text(is_owner=is_code_owner(user_id))" in ALLOW_CONTROL_SRC
