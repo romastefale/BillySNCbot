@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import html
 import logging
-import re
 import time
 import uuid
 from dataclasses import dataclass, field
 
-from app.bot.group_admin import bot_is_admin_in
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.types import (
@@ -270,10 +268,10 @@ async def radiofm_pick(query: CallbackQuery) -> None:
         user_name=pending.user_name,
         spotify_url=spotify_url,
     )
-    # Escopo reduzido: remove link Spotify quando o bot é membro comum no grupo.
-    if not bot_is_admin_in(chat_id):
-        caption = re.sub(r'<a href="https?://[^"]*">([^<]*)</a>', r"\1", caption)
 
+    # A camada process-wide de group_link_safety decide, com consulta fresca ao
+    # Telegram, se anchors e URLs podem permanecer no grupo. Os botões de
+    # escolha acima são callback_data e continuam disponíveis sem admin.
     sent = None
     if cover_url:
         photo = await cover_cache_service.resolve_photo(
