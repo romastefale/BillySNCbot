@@ -34,6 +34,8 @@ from aiogram.types import (
     Message,
 )
 
+from app.bot.group_admin import _admin_cache
+
 logger = logging.getLogger(__name__)
 router = Router(name="tiddd")
 
@@ -184,6 +186,43 @@ async def _show_preview(target: Message, state: FSMContext) -> None:
     except Exception:
         logger.exception("TIDDD_PREVIEW_SEND_FAILED user_id=%s", user_id)
         await target.answer(caption, parse_mode="HTML", reply_markup=_kb_preview())
+
+
+_HTTP_LINK_RE = __import__("re").compile(r'<a href="https?://[^"]*">([^<]*)</a>')
+
+
+def _strip_http_links(text: str) -> str:
+    """Remove hrefs http(s) de tags <a>, mantendo o texto âncora (mesma lógica de telegram.py)."""
+    return _HTTP_LINK_RE.sub(r"\1", text)
+
+
+async def _bot_can_post(bot, group_id: int) -> tuple[bool, bool]:
+    """Verifica se o bot pode enviar mensagens no grupo.
+
+    Retorna (can_post, is_admin).
+    Atualiza _admin_cache como efeito colateral para manter consistência com group_admin.py.
+    """
+    try:
+        member = await bot.get_chat_member(group_id, bot.id)
+    except Exception:
+        # Bot não está no grupo ou grupo inválido
+        return False, False
+
+    status = getattr(member, "status", "")
+
+    if status in ("creator", "administrator"):
+        _admin_cache[group_id] = True
+        return True, True
+    elif status == "member":
+        _admin_cache[group_id] = False
+        return True, False
+    elif status == "restricted":
+        can_send = bool(getattr(member, "can_send_messages", False))
+        _admin_cache[group_id] = False
+        return can_send, False
+    else:  # left, kicked, banned
+        _admin_cache.pop(group_id, None)
+        return False, False
 
 
 async def _send_card_to(bot, chat_id: int, caption: str, capa) -> None:
@@ -412,8 +451,7 @@ async def tiddd_cb_postar_sim(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(StateFilter(TidddFlow.publicar))
 async def tiddd_recv_forward(message: Message, state: FSMContext) -> None:
-    """Recebe mensagem encaminhada do grupo-alvo e posta o card lá."""
-    # /cancel já é capturado pelo handler genérico acima — aqui chegam só msgs normais
+    """Recebe mensagem encaminhada do grupo-alvo, verifica permissões e posta o card."""
     forward_chat = message.forward_from_chat
     if not forward_chat or forward_chat.type not in ("group", "supergroup"):
         await message.answer(
@@ -422,22 +460,35 @@ async def tiddd_recv_forward(message: Message, state: FSMContext) -> None:
         )
         return
 
+    group_id = forward_chat.id
+    group_name = html.escape(forward_chat.title or "grupo")
+
+    # Verifica o que o bot pode fazer nesse grupo antes de tentar enviar
+    can_post, is_admin = await _bot_can_post(message.bot, group_id)
+    if not can_post:
+        await message.answer(
+            f"Não tenho permissão pra enviar mensagens em <b>{group_name}</b>.\n"
+            "Verifique se o bot está no grupo e com permissão de enviar.",
+            parse_mode="HTML",
+        )
+        return  # Mantém o estado — usuário pode tentar outro grupo
+
     data = await state.get_data()
     caption: str = data.get("caption", "")
     capa = data.get("capa")
-    group_id = forward_chat.id
-    group_name = html.escape(forward_chat.title or "grupo")
+
+    # Aplica strip de links externos quando não é admin (igual telegram.py / radiofm.py)
+    safe_caption = caption if is_admin else _strip_http_links(caption)
 
     await state.clear()
 
     try:
-        await _send_card_to(message.bot, group_id, caption, capa)
+        await _send_card_to(message.bot, group_id, safe_caption, capa)
         await message.answer(f"✅ Card postado em <b>{group_name}</b>!", parse_mode="HTML")
     except Exception:
         logger.warning("TIDDD_GROUP_POST_FAILED group_id=%s", group_id, exc_info=True)
         await message.answer(
-            f"Não consegui postar em <b>{group_name}</b>. "
-            "O bot está presente lá?",
+            f"Erro ao postar em <b>{group_name}</b>. Tente novamente.",
             parse_mode="HTML",
         )
 
