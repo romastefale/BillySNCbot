@@ -3,11 +3,13 @@ name: Railway readiness
 on:
   pull_request:
     paths:
+      - "main.py"
       - "myjamrobot/**"
       - ".github/workflows/railway-readiness.yml"
       - ".gitignore"
   push:
     paths:
+      - "main.py"
       - "myjamrobot/**"
       - ".github/workflows/railway-readiness.yml"
       - ".gitignore"
@@ -48,7 +50,11 @@ jobs:
         run: mkdir -p "$MYJAM_DATA_DIR"
 
       - name: Compile Python sources
-        run: python -m compileall app scripts tests
+        run: python -m compileall ../main.py app scripts tests
+
+      - name: Validate root ASGI compatibility
+        working-directory: .
+        run: python -c "import main; from app.main import app as canonical; assert main.app is canonical; assert callable(main.app)"
 
       - name: Run smoke imports
         run: python scripts/smoke_imports.py
