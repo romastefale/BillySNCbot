@@ -141,29 +141,44 @@ def test_myself_keyboard_hides_disabled_periods(monkeypatch) -> None:
     assert [button.text for button in filtered.inline_keyboard[0]] == ["Mensal"]
 
 
-def test_allow_panel_uses_check_and_x_symbols(monkeypatch) -> None:
+def test_allow_panel_uses_check_x_and_explicit_sync(monkeypatch) -> None:
     states = {feature: True for feature in allow_control.CONTROLLED_FEATURES}
     states["songcharts"] = False
     monkeypatch.setattr(allow_bot, "feature_states", lambda: states)
 
     markup = allow_bot._panel_keyboard()
-    labels = [row[0].text for row in markup.inline_keyboard]
+    feature_labels = [row[0].text for row in markup.inline_keyboard[:-1]]
+    sync_button = markup.inline_keyboard[-1][0]
 
-    assert "✅ /tnow" in labels
-    assert "❌ /songcharts" in labels
-    assert len(labels) == len(allow_control.CONTROLLED_FEATURES)
+    assert "✅ /tnow" in feature_labels
+    assert "❌ /songcharts" in feature_labels
+    assert len(feature_labels) == len(allow_control.CONTROLLED_FEATURES)
+    assert sync_button.callback_data == "allow:sync"
+
+
+def _scope_key(scope) -> tuple[str, int | None]:
+    if isinstance(scope, BotCommandScopeChat):
+        return ("chat", int(scope.chat_id))
+    return (type(scope).__name__, None)
 
 
 class _FakeBot:
     def __init__(self) -> None:
         self.deleted_scopes = []
         self.set_calls = []
+        self.commands: dict[tuple[str, int | None], list] = {}
 
     async def delete_my_commands(self, *, scope) -> None:
         self.deleted_scopes.append(scope)
+        self.commands[_scope_key(scope)] = []
 
     async def set_my_commands(self, commands, *, scope) -> None:
-        self.set_calls.append((commands, scope))
+        stored = list(commands)
+        self.set_calls.append((stored, scope))
+        self.commands[_scope_key(scope)] = stored
+
+    async def get_my_commands(self, *, scope):
+        return list(self.commands.get(_scope_key(scope), []))
 
 
 def test_setup_commands_hides_disabled_features_and_group_menu(monkeypatch) -> None:
@@ -176,8 +191,9 @@ def test_setup_commands_hides_disabled_features_and_group_menu(monkeypatch) -> N
         lambda command: command != "tnow" and command != "legacy",
     )
 
-    asyncio.run(setup_commands.setup_bot_commands(bot))
+    result = asyncio.run(setup_commands.setup_bot_commands(bot, attempts=1, raise_on_error=True))
 
+    assert result is True
     assert any(isinstance(scope, BotCommandScopeDefault) for scope in bot.deleted_scopes)
     assert any(isinstance(scope, BotCommandScopeAllGroupChats) for scope in bot.deleted_scopes)
 
