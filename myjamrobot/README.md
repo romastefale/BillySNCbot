@@ -1,4 +1,4 @@
-# myJAMrobot
+# billy som na caixa
 
 Bot Telegram com foco apenas musical.
 
@@ -13,7 +13,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 Use volume em `/app/data` e variável:
 
 ```text
-MYJAM_DATABASE_URL=sqlite:////app/data/myjamrobot.sqlite3
+MYJAM_DATABASE_URL=sqlite:////app/data/billy.sqlite3
 ```
 
 ## Validação
@@ -28,13 +28,13 @@ PYTHONPATH=. pytest -q
 <!-- MYJAMROBOT_DATABASE_RAILWAY_NOTE -->
 ## Railway / SQLite
 
-myJAMrobot is SQLite-only. For Railway, use a persistent volume mounted at `/app/data`.
-Set `MYJAM_DATABASE_URL=sqlite:////app/data/app.db` when possible. If an older Postgres `DATABASE_URL` remains from a previous service, myJAMrobot ignores it unless it is already a SQLite URL.
+billy som na caixa is SQLite-only. For Railway, use a persistent volume mounted at `/app/data`.
+Set `MYJAM_DATABASE_URL=sqlite:////app/data/app.db` when possible. If an older Postgres `DATABASE_URL` remains from a previous service, the bot ignores it unless it is already a SQLite URL.
 
 
 ## Escopo limpo
 
-Esta base contém somente recursos musicais do myJAMrobot.
+Esta base contém somente recursos musicais do billy som na caixa.
 A escolha de grupo existe apenas para publicar resultado musical onde o usuário e o bot estão presentes.
 
 

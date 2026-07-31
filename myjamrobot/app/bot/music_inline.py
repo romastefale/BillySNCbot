@@ -1,4 +1,4 @@
-"""Inline musical seguro para myJAMrobot.
+"""Inline musical seguro para billy som na caixa.
 
 Entrada inline sem alterar os comandos normais. O resultado escolhido começa
 como mensagem textual temporária e, quando o Telegram envia

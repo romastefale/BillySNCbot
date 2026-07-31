@@ -222,7 +222,7 @@ def _should_handle_text_alias(message: Message) -> bool:
 def _start_text(message: Message) -> str:
     if message.chat.type != "private":
         return (
-            "♫ ♥ <b>myJAMrobot no grupo</b>\n\n"
+            "♫ ♥ <b>billy som na caixa no grupo</b>\n\n"
             "Comandos musicais ativos para compartilhar o que está tocando, buscar músicas, "
             "ver capas, canvas, letras, mosaicos e rankings do grupo.\n\n"
             "<b>Conectar Last.fm:</b> <code>/lastfm seu_username</code>\n"
@@ -235,7 +235,7 @@ def _start_text(message: Message) -> str:
 
     if _is_owner_message(message):
         return (
-            "♫ ♥ <b>myJAMrobot</b>\n\n"
+            "♫ ♥ <b>billy som na caixa</b>\n\n"
             "Sua central musical está ativa. Use esta conversa para conectar serviços, "
             "acompanhar sua música atual, gerar cards, extratos e rankings por DM.\n\n"
             "<b>Conectar Last.fm:</b> <code>/lastfm seu_username</code>\n"
@@ -247,7 +247,7 @@ def _start_text(message: Message) -> str:
         )
 
     return (
-        "♫ ♥ <b>Bem-vindo ao myJAMrobot</b>\n\n"
+        "♫ ♥ <b>Bem-vindo ao billy som na caixa</b>\n\n"
         "Conecte seu Last.fm para acompanhar o que você está ouvindo, gerar cards, "
         "ver extratos e usar recursos musicais do bot.\n\n"
         "<b>Conectar Last.fm:</b> <code>/lastfm seu_username</code>\n"
@@ -612,7 +612,7 @@ def _register_handlers(dp: Dispatcher) -> None:
 
         if payload == "connect":
             await message.answer(
-                "🎧 <b>Conectar suas contas no myJAMrobot</b>\n\n"
+                "🎧 <b>Conectar suas contas no billy som na caixa</b>\n\n"
                 "<b>Last.fm</b> (obrigatório pra extratos):\n"
                 "<code>/lastfm seu_username</code> (sem @)\n\n"
                 "<b>Spotify</b> (opcional, fallback):\n"
@@ -663,7 +663,7 @@ def _register_handlers(dp: Dispatcher) -> None:
             return
         auth_url = spotify_service.build_auth_url(message.from_user.id)
         await message.answer(
-            "🎧 <b>Conectando suas contas no myJAMrobot</b>\n\n"
+            "🎧 <b>Conectando suas contas no billy som na caixa</b>\n\n"
             f"1) <b>Spotify</b> — abre este link e autoriza:\n{auth_url}\n\n"
             "2) <b>Last.fm</b> — manda aqui:\n"
             "<code>/lastfm seu_username</code>  (sem o @)\n\n"

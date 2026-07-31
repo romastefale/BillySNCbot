@@ -63,7 +63,7 @@ def test_private_help_matches_private_scope() -> None:
 def test_start_text_is_contextual() -> None:
     group_text = _start_text(_msg("supergroup"))
     private_text = _start_text(_msg("private"))
-    assert "myJAMrobot no grupo" in group_text
+    assert "billy som na caixa no grupo" in group_text
     assert "/songcharts" in group_text
-    assert "Bem-vindo ao myJAMrobot" in private_text
+    assert "Bem-vindo ao billy som na caixa" in private_text
     assert "/login" in private_text

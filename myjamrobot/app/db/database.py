@@ -53,7 +53,7 @@ def _table_columns(conn, dialect_name: str, table_name: str) -> set[str]:
 def _reactivate_legacy_music_login_rows(conn, dialect_name: str) -> None:
     """Mark every persisted music-login row as active.
 
-    This is a compatibility backfill for databases carried from older myJAMrobot/legacy
+    This is a compatibility backfill for databases carried from older legacy
     builds. Some historical schemas may contain an active/enabled flag; the
     current music-only code treats the presence of Last.fm or Spotify rows as
     the connection, so this migration must not require users to run /login or

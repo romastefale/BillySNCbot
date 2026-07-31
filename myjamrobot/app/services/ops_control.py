@@ -919,7 +919,7 @@ def _json_dict_from_value(value: Any) -> dict[str, Any] | None:
 def _row_identity_candidates(table_name: str, role: str, row: dict[str, Any], user_id: int) -> list[dict[str, Any]]:
     """Extract Telegram identity from any table row that stores it.
 
-    Older myJAMrobot tables already contain usable public identity fields, but the
+    Older tables already contain usable public identity fields, but the
     first /listening enriched report only consumed identities from
     bot_seen_updates and live getChat. This helper mines all persisted rows so
     the summary uses what the bot already saved before raw-update auditing was
@@ -1354,7 +1354,7 @@ def _format_table_dump_lines(data: dict[str, dict[str, Any]]) -> list[str]:
 def _build_login_export_text(generated_at: datetime, *, api_debug: dict[str, Any] | None = None) -> tuple[str, ListeningExportStats]:
     data, stats, users = _collect_listening_tables()
     lines: list[str] = []
-    lines.append("myJAMrobot /listening - exportacao administrativa integral do banco")
+    lines.append("billy som na caixa /listening - exportacao administrativa integral do banco")
     lines.append(f"Gerado em UTC: {generated_at.isoformat(sep=' ')}")
     lines.append(f"Corte legacy: {LEGACY_CUTOFF.isoformat(sep=' ')} UTC")
     lines.append("")
@@ -1458,8 +1458,8 @@ def _bundle_from_lines(*, lines: list[str], stamp: str, stats: ListeningExportSt
     return ExportBundle(
         txt_bytes=text_body.encode("utf-8"),
         pdf_bytes=_make_pdf(lines),
-        txt_filename=f"myjamrobot-listening-{stamp}{name_suffix}.txt",
-        pdf_filename=f"myjamrobot-listening-{stamp}{name_suffix}.pdf",
+        txt_filename=f"billy-listening-{stamp}{name_suffix}.txt",
+        pdf_filename=f"billy-listening-{stamp}{name_suffix}.pdf",
         row_count=stats.row_count,
         login_row_count=stats.login_row_count,
         interaction_row_count=stats.interaction_row_count,
@@ -1499,7 +1499,7 @@ def build_listening_export_parts(max_document_bytes: int = MAX_TELEGRAM_DOCUMENT
     total = len(content_chunks)
     for index, chunk in enumerate(content_chunks, start=1):
         prefixed = [
-            f"myJAMrobot /listening - parte {index}/{total}",
+            f"billy som na caixa /listening - parte {index}/{total}",
             f"Linhas exportadas do banco: {stats.row_count}",
             f"Usuarios identificados: {stats.user_count}",
             "",
@@ -1527,7 +1527,7 @@ def build_listening_export_parts(max_document_bytes: int = MAX_TELEGRAM_DOCUMENT
         for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
             suffix = f"part{index:03d}-{sub_index:02d}-of-{total:03d}"
             sub_prefixed = [
-                f"myJAMrobot /listening - parte {index}/{total}.{sub_index}",
+                f"billy som na caixa /listening - parte {index}/{total}.{sub_index}",
                 f"Linhas exportadas do banco: {stats.row_count}",
                 f"Usuarios identificados: {stats.user_count}",
                 "",

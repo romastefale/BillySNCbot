@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 LYRICS_API_URL = "https://api.lyrics.ovh/v1"
 LRCLIB_API_URL = "https://lrclib.net/api"
-LRCLIB_USER_AGENT = "myjamrobot/1.0 (+https://github.com/romastefale/myJAMrobot)"
+LRCLIB_USER_AGENT = "billy-som-na-caixa/1.0"
 LYRICS_TIMEOUT_SECONDS = 8.0
 LYRICS_CACHE_TTL_SECONDS = 24 * 3600
 LYRICS_NEGATIVE_TTL_SECONDS = 60

@@ -48,7 +48,7 @@ from app.web_music.router import router as web_music_router
 from app.web_music.state import set_web_music_bot
 from app.services.ops_control import record_seen_update_payload, should_drop_update_for_operational_controls, user_id_from_update
 
-app = FastAPI(title="myJAMrobot")
+app = FastAPI(title="billy som na caixa")
 app.include_router(web_music_router)
 logger = logging.getLogger(__name__)
 

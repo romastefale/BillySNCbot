@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 CARD_WIDTH = 1080
 CARD_HEIGHT = 2000
-DEFAULT_BOT_NAME = "myJAMrobot"
+DEFAULT_BOT_NAME = "billy som na caixa"
 TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "monthfm_card.html"
 
 # =========================================================================
@@ -53,7 +53,7 @@ FONT_SCALE: dict[str, int] = {
 # títulos de coluna, nome do item) ficam num passo abaixo dos heróis
 # (hero_track, display-lg total) que permanecem dominantes.
 CARD_FONTS: dict[str, int] = {
-    "brand":            FONT_SCALE["body-strong"] // 2,  # ♫ myJAMrobot (compacto)
+    "brand":            FONT_SCALE["body-strong"] // 2,  # ♫ billy som na caixa (compacto)
     "period_label":     FONT_SCALE["subtitle"],       # EXTRATO MENSAL/SEMANAL
     "hero_label":       FONT_SCALE["micro"],          # MAIS OUVIDA NO PERÍODO (1 linha)
     "hero_track":       FONT_SCALE["display-sm"],     # nome da música hero
