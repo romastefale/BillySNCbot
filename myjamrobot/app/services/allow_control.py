@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Dispatcher
-from aiogram.types import TelegramObject
+from aiogram.types import InlineKeyboardMarkup, TelegramObject
 
 from app.services.ops_control import get_state_bool, set_state_bool
 
@@ -65,17 +66,20 @@ def feature_states() -> dict[str, bool]:
     return {feature: is_feature_enabled(feature) for feature in CONTROLLED_FEATURES}
 
 
-def all_features_enabled() -> bool:
-    return all(feature_states().values())
-
-
 def command_feature(command: str | None) -> str | None:
     return _COMMAND_TO_FEATURE.get((command or "").strip().lower())
 
 
 def command_is_publicly_enabled(command: str) -> bool:
     feature = command_feature(command)
-    return True if feature is None else is_feature_enabled(feature)
+    if feature is None:
+        return True
+    if feature == "myself":
+        return bool(
+            is_feature_enabled("myself")
+            and (is_feature_enabled("weekfm") or is_feature_enabled("monthfm"))
+        )
+    return is_feature_enabled(feature)
 
 
 def _command_name_from_text(value: str | None) -> str | None:
@@ -100,17 +104,85 @@ def _callback_feature(update: Any) -> str | None:
     if data.startswith("songcharts:"):
         return "songcharts"
     if data.startswith("myself:w:"):
-        return "weekfm" if is_feature_enabled("myself") else "myself"
+        if not is_feature_enabled("myself"):
+            return "myself"
+        return "weekfm"
     if data.startswith("myself:m:"):
-        return "monthfm" if is_feature_enabled("myself") else "myself"
+        if not is_feature_enabled("myself"):
+            return "myself"
+        return "monthfm"
     return None
 
 
 def should_drop_update_for_allow_controls(update: Any, *, is_owner: bool) -> bool:
     if is_owner:
         return False
-    feature = command_feature(_message_command(update)) or _callback_feature(update)
+    command = _message_command(update)
+    if command is not None and not command_is_publicly_enabled(command):
+        return True
+    feature = _callback_feature(update)
     return bool(feature and not is_feature_enabled(feature))
+
+
+def filter_ux_text(text: str) -> str:
+    """Remove linhas que anunciam comandos desativados, preservando o resto da mensagem."""
+    disabled = tuple(
+        command for command in _COMMAND_TO_FEATURE if not command_is_publicly_enabled(command)
+    )
+    if not disabled:
+        return text
+
+    command_patterns = tuple(re.compile(rf"/{re.escape(command)}(?:\b|<)", re.IGNORECASE) for command in disabled)
+    kept = [line for line in str(text).splitlines() if not any(pattern.search(line) for pattern in command_patterns)]
+    cleaned = "\n".join(kept)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def filter_myself_keyboard(markup: InlineKeyboardMarkup | None) -> InlineKeyboardMarkup | None:
+    if markup is None or not is_feature_enabled("myself"):
+        return None
+    rows = []
+    for row in markup.inline_keyboard:
+        visible = []
+        for button in row:
+            data = str(button.callback_data or "")
+            if data.startswith("myself:w:") and not is_feature_enabled("weekfm"):
+                continue
+            if data.startswith("myself:m:") and not is_feature_enabled("monthfm"):
+                continue
+            visible.append(button)
+        if visible:
+            rows.append(visible)
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
+def install_allow_ux_filters() -> None:
+    """Instala filtros dinâmicos sem alterar os handlers funcionais existentes."""
+    from app.bot import myself as myself_module
+    from app.bot import telegram as telegram_module
+
+    if not getattr(telegram_module, "_myjam_allow_ux_installed", False):
+        original_start = telegram_module._start_text
+        original_help = telegram_module._help_text
+
+        def _start_text_filtered(message):
+            return filter_ux_text(original_start(message))
+
+        def _help_text_filtered(message):
+            return filter_ux_text(original_help(message))
+
+        telegram_module._start_text = _start_text_filtered
+        telegram_module._help_text = _help_text_filtered
+        setattr(telegram_module, "_myjam_allow_ux_installed", True)
+
+    if not getattr(myself_module, "_myjam_allow_ux_installed", False):
+        original_menu = myself_module._menu_keyboard
+
+        def _menu_keyboard_filtered(requester_id: int):
+            return filter_myself_keyboard(original_menu(requester_id))
+
+        myself_module._menu_keyboard = _menu_keyboard_filtered
+        setattr(myself_module, "_myjam_allow_ux_installed", True)
 
 
 class AllowControlMiddleware(BaseMiddleware):
