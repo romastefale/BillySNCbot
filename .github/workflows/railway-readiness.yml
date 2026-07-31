@@ -7,8 +7,6 @@ on:
       - ".github/workflows/railway-readiness.yml"
       - ".gitignore"
   push:
-    branches:
-      - main
     paths:
       - "myjamrobot/**"
       - ".github/workflows/railway-readiness.yml"
@@ -28,8 +26,8 @@ jobs:
         working-directory: myjamrobot
     env:
       PYTHONPATH: .
-      MYJAM_DATA_DIR: ${{ runner.temp }}/myjamrobot-data
-      MYJAM_DATABASE_URL: sqlite:///${{ runner.temp }}/myjamrobot-data/app.db
+      MYJAM_DATA_DIR: /tmp/myjamrobot-data
+      MYJAM_DATABASE_URL: sqlite:////tmp/myjamrobot-data/app.db
     steps:
       - name: Checkout
         uses: actions/checkout@v4
