@@ -63,6 +63,7 @@ class TidddFlow(StatesGroup):
     artista = State()
     capa = State()
     preview = State()
+    publicar = State()   # aguardando decisão/forward pra postar em grupo
 
 
 # ── teclados inline ──────────────────────────────────────────────────────────
@@ -83,6 +84,13 @@ def _kb_skip_capa() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭️ Pular", callback_data="tiddd:skip_capa")],
     ])
+
+
+def _kb_publicar() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Sim, postar no grupo", callback_data="tiddd:postar_sim"),
+        InlineKeyboardButton(text="❌ Não", callback_data="tiddd:postar_nao"),
+    ]])
 
 
 def _kb_preview() -> InlineKeyboardMarkup:
@@ -178,10 +186,26 @@ async def _show_preview(target: Message, state: FSMContext) -> None:
         await target.answer(caption, parse_mode="HTML", reply_markup=_kb_preview())
 
 
+async def _send_card_to(bot, chat_id: int, caption: str, capa) -> None:
+    """Envia o card (foto/vídeo/animação/texto) para o chat_id indicado."""
+    if capa:
+        tipo, file_id = capa
+        if tipo == "photo":
+            await bot.send_photo(chat_id, photo=file_id, caption=caption, parse_mode="HTML")
+        elif tipo == "video":
+            await bot.send_video(chat_id, video=file_id, caption=caption, parse_mode="HTML")
+        elif tipo == "animation":
+            await bot.send_animation(chat_id, animation=file_id, caption=caption, parse_mode="HTML")
+        else:
+            await bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        await bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
+
+
 async def _send_final_card(call: CallbackQuery, state: FSMContext) -> None:
-    """Envia o card publicável e limpa o estado."""
+    """Envia o card na DM e salva caption+capa no estado para postar em grupo depois."""
     data = await state.get_data()
-    await state.clear()
+    # Não limpa o estado aqui — o fluxo de publicação (publicar state) faz isso.
 
     user = call.from_user
     user_name = (user.full_name or "Usuário") if user else "Usuário"
@@ -190,22 +214,11 @@ async def _send_final_card(call: CallbackQuery, state: FSMContext) -> None:
     capa = data.get("capa")
     chat_id = call.message.chat.id if call.message else (call.from_user.id if call.from_user else 0)
 
+    # Persiste caption/capa no estado para uso eventual na postagem em grupo.
+    await state.update_data(caption=caption, capa=capa)
+
     try:
-        if capa:
-            tipo, file_id = capa
-            if tipo == "photo":
-                await call.bot.send_photo(chat_id, photo=file_id, caption=caption, parse_mode="HTML")
-            elif tipo == "video":
-                await call.bot.send_video(chat_id, video=file_id, caption=caption, parse_mode="HTML")
-            elif tipo == "animation":
-                await call.bot.send_animation(chat_id, animation=file_id, caption=caption,
-                                              parse_mode="HTML")
-            else:
-                await call.bot.send_message(chat_id, caption, parse_mode="HTML",
-                                            disable_web_page_preview=True)
-        else:
-            await call.bot.send_message(chat_id, caption, parse_mode="HTML",
-                                        disable_web_page_preview=True)
+        await _send_card_to(call.bot, chat_id, caption, capa)
     except Exception:
         logger.exception("TIDDD_FINAL_SEND_FAILED user_id=%s", user_id)
 
@@ -215,6 +228,10 @@ async def _send_final_card(call: CallbackQuery, state: FSMContext) -> None:
 @router.message(Command("tiddd"))
 async def tiddd_start(message: Message, state: FSMContext) -> None:
     if not message.from_user:
+        return
+
+    if message.chat.type != "private":
+        await message.answer("🎧 O /tiddd só funciona no privado. Me chama na DM!")
         return
 
     from app.security.rate_limit import enforce_message_rate_limit
@@ -365,6 +382,64 @@ async def tiddd_cb_skip_capa(call: CallbackQuery, state: FSMContext) -> None:
 async def tiddd_cb_confirmar(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer("🎉 Enviando...")
     await _send_final_card(call, state)
+    await state.set_state(TidddFlow.publicar)
+    if call.message:
+        await call.message.answer(
+            "Card salvo no DM! 🎉\n\nQuer postar em algum grupo também?",
+            reply_markup=_kb_publicar(),
+        )
+
+
+@router.callback_query(F.data == "tiddd:postar_nao")
+async def tiddd_cb_postar_nao(call: CallbackQuery, state: FSMContext) -> None:
+    await call.answer()
+    await state.clear()
+    if call.message:
+        await call.message.edit_reply_markup(reply_markup=None)
+
+
+@router.callback_query(F.data == "tiddd:postar_sim")
+async def tiddd_cb_postar_sim(call: CallbackQuery, state: FSMContext) -> None:
+    await call.answer()
+    if call.message:
+        await call.message.edit_text(
+            "📨 Encaminhe (<b>forward</b>) qualquer mensagem do grupo onde quer postar o card.\n\n"
+            "Use /cancel para desistir.",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+
+
+@router.message(StateFilter(TidddFlow.publicar))
+async def tiddd_recv_forward(message: Message, state: FSMContext) -> None:
+    """Recebe mensagem encaminhada do grupo-alvo e posta o card lá."""
+    # /cancel já é capturado pelo handler genérico acima — aqui chegam só msgs normais
+    forward_chat = message.forward_from_chat
+    if not forward_chat or forward_chat.type not in ("group", "supergroup"):
+        await message.answer(
+            "Não consegui identificar o grupo. "
+            "Encaminhe uma mensagem do grupo aqui, ou /cancel para sair."
+        )
+        return
+
+    data = await state.get_data()
+    caption: str = data.get("caption", "")
+    capa = data.get("capa")
+    group_id = forward_chat.id
+    group_name = html.escape(forward_chat.title or "grupo")
+
+    await state.clear()
+
+    try:
+        await _send_card_to(message.bot, group_id, caption, capa)
+        await message.answer(f"✅ Card postado em <b>{group_name}</b>!", parse_mode="HTML")
+    except Exception:
+        logger.warning("TIDDD_GROUP_POST_FAILED group_id=%s", group_id, exc_info=True)
+        await message.answer(
+            f"Não consegui postar em <b>{group_name}</b>. "
+            "O bot está presente lá?",
+            parse_mode="HTML",
+        )
 
 
 @router.callback_query(F.data == "tiddd:edit_musica")

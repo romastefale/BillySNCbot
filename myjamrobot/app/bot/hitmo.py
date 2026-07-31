@@ -64,6 +64,10 @@ async def hitmo_start(message: Message, state: FSMContext) -> None:
     if not message.from_user:
         return
 
+    if message.chat.type != "private":
+        await message.answer("🎙 O /hitmo só funciona no privado. Me chama na DM!")
+        return
+
     from app.security.rate_limit import enforce_message_rate_limit
     if not await enforce_message_rate_limit(message, "hitmo"):
         return
