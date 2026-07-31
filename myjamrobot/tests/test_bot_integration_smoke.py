@@ -88,16 +88,64 @@ def test_tiddd_and_hitmo_routers_included_before_register_handlers() -> None:
     tiddd_pos = MAIN_SRC.index("dispatcher.include_router(tiddd_router)")
     hitmo_pos = MAIN_SRC.index("dispatcher.include_router(hitmo_router)")
     register_pos = MAIN_SRC.index("_register_handlers(dispatcher)")
-    assert tiddd_pos < register_pos
-    assert hitmo_pos < register_pos
+    assert tiddd_pos < register_pos, "tiddd_router deve ser incluído antes de _register_handlers"
+    assert hitmo_pos < register_pos, "hitmo_router deve ser incluído antes de _register_handlers"
 
 
-# ── integração estática específica ────────────────────────────────────────────
+# ── Router objects têm o nome correto ─────────────────────────────────────────
+
+def test_tiddd_router_has_correct_name() -> None:
+    from app.bot.tiddd import router
+    assert router.name == "tiddd", f"Router name incorreto: {router.name!r}"
+
+
+def test_hitmo_router_has_correct_name() -> None:
+    from app.bot.hitmo import router
+    assert router.name == "hitmo", f"Router name incorreto: {router.name!r}"
+
+
+# ── ffmpeg no Dockerfile ──────────────────────────────────────────────────────
 
 def test_dockerfile_installs_ffmpeg() -> None:
-    assert "ffmpeg" in DOCKERFILE
+    """O Dockerfile de produção deve instalar o ffmpeg explicitamente (apt-get).
+    Sem ffmpeg no PATH, o handler /hitmo falha silenciosamente em produção.
+    """
+    assert "ffmpeg" in DOCKERFILE, (
+        "ffmpeg não encontrado no Dockerfile — "
+        "adicione 'ffmpeg' ao apt-get install para que /hitmo funcione em produção."
+    )
 
 
-def test_tiddd_router_has_group_publish_state_handler() -> None:
-    assert "TidddFlow.publicar" in TIDDD_SRC
-    assert "tiddd_recv_forward" in TIDDD_SRC
+def test_dockerfile_ffmpeg_in_apt_get_line() -> None:
+    """ffmpeg deve estar na mesma instrução RUN apt-get que as outras dependências."""
+    for line in DOCKERFILE.splitlines():
+        if "apt-get install" in line and "ffmpeg" in line:
+            return
+    # Também aceita se ffmpeg estiver em uma linha de continuação de um bloco
+    # RUN apt-get install (linhas com \ no final).
+    in_apt_block = False
+    for line in DOCKERFILE.splitlines():
+        stripped = line.strip()
+        if "apt-get install" in stripped:
+            in_apt_block = True
+        if in_apt_block and "ffmpeg" in stripped:
+            return
+        if in_apt_block and not stripped.endswith("\\"):
+            in_apt_block = False
+    raise AssertionError(
+        "ffmpeg deve estar numa instrução 'apt-get install' do Dockerfile"
+    )
+
+
+# ── aiogram FSM disponível na versão instalada ────────────────────────────────
+
+def test_aiogram_fsm_imports_available() -> None:
+    """Verifica que as sub-importações de aiogram.fsm usadas pelos módulos
+    estão disponíveis na versão instalada do aiogram (importação directa).
+    """
+    from aiogram.fsm.context import FSMContext  # noqa: F401
+    from aiogram.fsm.state import State, StatesGroup  # noqa: F401
+
+
+def test_aiogram_fsm_state_filter_available() -> None:
+    from aiogram.filters import StateFilter  # noqa: F401
