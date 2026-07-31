@@ -48,3 +48,4 @@ packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp
 
 [userenv.shared]
 MYJAM_BASE_URL = "https://11e06a30-8eb8-4b35-898a-75021f322dfa-00-20ivc6wenjjdw.worf.replit.dev"
+MYJAM_CODE_OWNER_IDS = "8921622168"
