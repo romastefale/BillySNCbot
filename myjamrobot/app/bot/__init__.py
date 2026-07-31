@@ -8,13 +8,9 @@ install_reaction_block()
 
 from app.bot.group_link_safety import install_group_link_safety
 
+# The link guard preserves Telegram-local user references and removes only
+# external destinations in groups without confirmed administration.
 install_group_link_safety()
-
-# Preserve only Telegram-local user anchors while the guard continues removing
-# every external destination in non-admin groups.
-from app.bot.internal_user_mentions import install_internal_user_mention_allowance
-
-install_internal_user_mention_allowance()
 
 from app.bot.progressive_music_text import install_progressive_music_text
 
