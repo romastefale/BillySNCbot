@@ -442,7 +442,8 @@ async def tiddd_cb_postar_sim(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
     if call.message:
         await call.message.edit_text(
-            "📨 Encaminhe (<b>forward</b>) qualquer mensagem do grupo onde quer postar o card.\n\n"
+            "📨 Encaminhe (<b>forward</b>) qualquer mensagem do grupo onde quer postar o card,\n"
+            "ou <b>digite o @username ou o ID numérico</b> do grupo.\n\n"
             "Use /cancel para desistir.",
             parse_mode="HTML",
             reply_markup=None,
@@ -451,23 +452,61 @@ async def tiddd_cb_postar_sim(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(StateFilter(TidddFlow.publicar))
 async def tiddd_recv_forward(message: Message, state: FSMContext) -> None:
-    """Recebe mensagem encaminhada do grupo-alvo, verifica permissões e posta o card."""
+    """Recebe forward ou @username/ID do grupo-alvo, verifica permissões e posta o card."""
+    # /cancel já é capturado pelo handler genérico acima — aqui chegam só msgs normais
+
+    group_id: int | None = None
+    group_name: str = "grupo"
+
+    # 1) Mensagem encaminhada com forward_from_chat (grupos sem restrição)
     forward_chat = message.forward_from_chat
-    if not forward_chat or forward_chat.type not in ("group", "supergroup"):
+    if forward_chat and forward_chat.type in ("group", "supergroup"):
+        group_id = forward_chat.id
+        group_name = forward_chat.title or "grupo"
+
+    # 2) Texto digitado: @username ou ID numérico (grupos que bloqueiam forward)
+    if group_id is None and message.text:
+        text = message.text.strip()
+        if text.lstrip("-").isdigit():
+            # ID numérico (pode ser negativo para grupos)
+            group_id = int(text)
+        elif text.startswith("@") and len(text) > 1:
+            # @username — resolve via API
+            try:
+                chat = await message.bot.get_chat(text)
+                if chat.type not in ("group", "supergroup"):
+                    await message.answer(
+                        f"<b>{html.escape(text)}</b> não é um grupo. "
+                        "Encaminhe uma mensagem do grupo, ou /cancel para sair.",
+                        parse_mode="HTML",
+                    )
+                    return
+                group_id = chat.id
+                group_name = chat.title or text
+            except Exception:
+                logger.warning("TIDDD_GET_CHAT_FAILED username=%s", text, exc_info=True)
+                await message.answer(
+                    f"Não consegui encontrar o grupo <b>{html.escape(text)}</b>. "
+                    "Verifique o @username e tente novamente, ou /cancel para sair.",
+                    parse_mode="HTML",
+                )
+                return
+
+    if group_id is None:
         await message.answer(
             "Não consegui identificar o grupo. "
-            "Encaminhe uma mensagem do grupo aqui, ou /cancel para sair."
+            "Encaminhe uma mensagem do grupo, ou digite o @username ou ID numérico — "
+            "ou /cancel para sair."
         )
         return
 
-    group_id = forward_chat.id
-    group_name = html.escape(forward_chat.title or "grupo")
+    safe_group_name = html.escape(group_name)
 
     # Verifica o que o bot pode fazer nesse grupo antes de tentar enviar
     can_post, is_admin = await _bot_can_post(message.bot, group_id)
     if not can_post:
         await message.answer(
-            f"Não tenho permissão pra enviar mensagens em <b>{group_name}</b>.\n"
+            f"Não tenho permissão pra enviar mensagens em <b>{safe_group_name}</b>.\n"
             "Verifique se o bot está no grupo e com permissão de enviar.",
             parse_mode="HTML",
         )
@@ -484,11 +523,12 @@ async def tiddd_recv_forward(message: Message, state: FSMContext) -> None:
 
     try:
         await _send_card_to(message.bot, group_id, safe_caption, capa)
-        await message.answer(f"✅ Card postado em <b>{group_name}</b>!", parse_mode="HTML")
+        await message.answer(f"✅ Card postado em <b>{safe_group_name}</b>!", parse_mode="HTML")
     except Exception:
         logger.warning("TIDDD_GROUP_POST_FAILED group_id=%s", group_id, exc_info=True)
         await message.answer(
-            f"Erro ao postar em <b>{group_name}</b>. Tente novamente.",
+            f"Não consegui postar em <b>{safe_group_name}</b>. "
+            "O bot está presente lá?",
             parse_mode="HTML",
         )
 
