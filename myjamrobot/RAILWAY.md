@@ -17,6 +17,18 @@ O caminho do arquivo de configuração é absoluto em relação à raiz do repos
 
 Não defina comandos Node, pnpm, Wrangler ou Cloudflare para este serviço. Com o Root Directory correto, o Railway deve detectar `myjamrobot/Dockerfile`. O comando de inicialização e o healthcheck são definidos em `railway.toml`.
 
+### Compatibilidade com `main:app` na raiz
+
+O modo oficial continua sendo:
+
+```text
+python -m app.bootstrap
+```
+
+O arquivo `main.py` da raiz apenas reexporta a mesma instância FastAPI de `myjamrobot/app/main.py`. Assim, um start command legado como `uvicorn main:app` não falha mais com `Attribute "app" not found in module "main"`, desde que as dependências Python da aplicação estejam instaladas.
+
+Esse fallback não substitui a configuração de monorepo acima. O Railway ainda deve usar `/myjamrobot` como Root Directory e `/myjamrobot/railway.toml` como Config File Path para instalar as dependências corretas, usar o Dockerfile de produção e montar os caminhos esperados.
+
 ## 2. Persistência
 
 Crie um volume no mesmo serviço e monte em:
@@ -78,16 +90,22 @@ O domínio deve ser o mesmo valor efetivo de `MYJAM_BASE_URL`.
 
 ## 5. Gates antes do deploy
 
-Execute em `myjamrobot/`:
+A partir da raiz do repositório, valide o fallback ASGI:
 
 ```bash
-python -m compileall app scripts tests
+python -c "import main; from app.main import app as canonical; assert main.app is canonical; assert callable(main.app)"
+```
+
+Depois execute em `myjamrobot/`:
+
+```bash
+python -m compileall ../main.py app scripts tests
 PYTHONPATH=. python scripts/smoke_imports.py
 PYTHONPATH=. pytest -q
 docker build -t billysncbot-railway .
 ```
 
-O workflow `.github/workflows/railway-readiness.yml` automatiza esses gates em branches, pull requests e pushes para `main`.
+O workflow `.github/workflows/railway-readiness.yml` automatiza esses gates em branches, pull requests e pushes para `main`, inclusive quando somente o `main.py` da raiz for alterado.
 
 ## 6. Primeiro deploy
 
@@ -106,6 +124,7 @@ STARTUP_MISSING_ENV_VARS
 DATABASE_STARTUP_FAILED
 TELEGRAM_STARTUP_FAILED
 PORT_INVALID
+Attribute "app" not found in module "main"
 ```
 
 Valide:
@@ -116,6 +135,8 @@ GET /readyz   -> HTTP 200 e status=ready
 ```
 
 O healthcheck do Railway usa `/readyz`; portanto, credenciais e inicialização do núcleo do bot devem estar corretas antes de o deployment ser promovido.
+
+Se `Attribute "app" not found in module "main"` reaparecer após esta correção, confirme que o deployment realmente contém o commit corrigido e que não existe imagem antiga em execução. Mesmo com o fallback, mantenha o start command oficial `python -m app.bootstrap`.
 
 ## 7. Homologação funcional
 
@@ -159,6 +180,7 @@ Rollback:
 A entrega é considerada concluída somente quando:
 
 - CI e Docker build estiverem aprovados;
+- o teste de compatibilidade `main:app` estiver aprovado;
 - Root Directory e Config File Path estiverem corretos;
 - volume estiver montado em `/app/data` com backup;
 - Serverless estiver desativado e houver uma única réplica;
