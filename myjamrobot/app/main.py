@@ -20,6 +20,7 @@ from app.logging_safety import configure_safe_logging
 
 configure_safe_logging()
 
+from app.bot.group_admin import router as group_admin_router
 from app.bot.hitmo import router as hitmo_router
 from app.bot.monthfm import router as monthfm_router
 from app.bot.owner_universal import router as owner_universal_router
@@ -112,6 +113,7 @@ async def _configure_telegram_bot_background() -> None:
             # tigraoID integrations — incluídos ANTES de _register_handlers
             # para que os filtros de estado FSM tenham prioridade sobre o
             # handler genérico de texto registrado ali.
+            dispatcher.include_router(group_admin_router)
             dispatcher.include_router(tiddd_router)
             dispatcher.include_router(hitmo_router)
             register_music_extra_handlers(dispatcher)
