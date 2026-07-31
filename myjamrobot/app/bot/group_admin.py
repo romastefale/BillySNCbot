@@ -1,63 +1,120 @@
-"""Verifica status de admin do bot ao entrar em grupos.
+"""Verifica e mantém o status administrativo do próprio bot em grupos.
 
-Comportamento:
-- Bot entra sem admin → manda a frase de lamento uma única vez e fica quieto.
-- Bot é promovido a admin → anuncia com referência ao /god.
-- /god → mostra as permissões atuais do bot no grupo (só funciona em grupo).
-
-Handler de my_chat_member (aiogram3): dispara somente quando o STATUS DO
-PRÓPRIO BOT muda num chat. Nunca confundir com chat_member (status de outros
-membros).
-
-Não usa banco: a mensagem é enviada uma única vez no evento — sem registro
-persistente de "já avisou". Se o bot for removido e readicionado, avisa de novo.
+A segurança de links usa este módulo como fonte de capacidade. Antes de qualquer
+saída clicável, o status pode ser confirmado novamente pela API do Telegram.
+Falha ou estado desconhecido é tratado como não-admin.
 """
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from aiogram import Router
+from aiogram import Bot, Router
 from aiogram.filters import IS_MEMBER, IS_NOT_MEMBER, ChatMemberUpdatedFilter, Command
 from aiogram.types import ChatMemberAdministrator, ChatMemberUpdated, Message
 
 logger = logging.getLogger(__name__)
 router = Router(name="group_admin")
 
-# Cache in-memory: chat_id → True (admin) | False (membro comum)
-# Populado pelos eventos my_chat_member. Ausência = nunca vimos o evento,
-# tratamos como admin para não suprimir links em grupos normais.
+# chat_id -> True (administrator/creator) | False (membro comum/restrito).
 _admin_cache: dict[int, bool] = {}
+_ADMIN_STATUSES = {"administrator", "creator"}
+_NON_ADMIN_STATUSES = {"member", "restricted", "left", "kicked", "banned"}
 
 
-def bot_is_admin_in(chat_id: int) -> bool:
-    """Retorna True se o bot é admin no grupo, False se membro comum.
+def _numeric_chat_id(chat_id: Any) -> int | None:
+    try:
+        return int(chat_id)
+    except (TypeError, ValueError):
+        return None
 
-    Na ausência de informação (grupo nunca visto via my_chat_member), assume
-    True — evita strip desnecessário em grupos onde o bot foi adicionado
-    antes do handler estar ativo.
+
+def _status_value(member_or_status: Any) -> str:
+    raw = getattr(member_or_status, "status", member_or_status)
+    value = getattr(raw, "value", raw)
+    return str(value or "").strip().lower()
+
+
+def set_bot_admin_status(chat_id: Any, is_admin: bool) -> None:
+    numeric = _numeric_chat_id(chat_id)
+    if numeric is not None:
+        _admin_cache[numeric] = bool(is_admin)
+
+
+def forget_bot_admin_status(chat_id: Any) -> None:
+    numeric = _numeric_chat_id(chat_id)
+    if numeric is not None:
+        _admin_cache.pop(numeric, None)
+
+
+def bot_is_admin_in(chat_id: Any) -> bool:
+    """Return the legacy cached hint used by older command-specific code.
+
+    Unknown remains optimistic here to avoid degrading an administrator group
+    before the central guard runs. This helper never authorizes final linked
+    output: ``resolve_bot_is_admin(..., require_fresh=True)`` does that.
     """
-    return _admin_cache.get(chat_id, True)
+    numeric = _numeric_chat_id(chat_id)
+    if numeric is None:
+        return False
+    return _admin_cache.get(numeric, True)
 
 
-def _is_admin(member) -> bool:
-    return getattr(member, "status", "") == "administrator"
+def _is_admin(member: Any) -> bool:
+    return _status_value(member) in _ADMIN_STATUSES
 
 
-# ── bot entra no grupo SEM ser admin ─────────────────────────────────────────
+async def resolve_bot_is_admin(
+    bot: Bot,
+    chat_id: Any,
+    *,
+    require_fresh: bool = False,
+) -> bool:
+    """Resolve current status and fail closed on every uncertainty.
+
+    ``require_fresh=True`` bypasses both positive and negative cached values.
+    The outbound link guard uses this mode before every clickable group output.
+    """
+    numeric = _numeric_chat_id(chat_id)
+    if not require_fresh and numeric is not None and numeric in _admin_cache:
+        return _admin_cache[numeric]
+
+    try:
+        member = await bot.get_chat_member(chat_id, bot.id)
+    except Exception:
+        logger.warning(
+            "BOT_ADMIN_STATUS_RESOLVE_FAILED chat=%s; links will be suppressed",
+            chat_id,
+            exc_info=True,
+        )
+        if numeric is not None:
+            _admin_cache[numeric] = False
+        return False
+
+    status = _status_value(member)
+    is_admin = status in _ADMIN_STATUSES
+    if numeric is not None:
+        _admin_cache[numeric] = is_admin
+    if status not in _ADMIN_STATUSES | _NON_ADMIN_STATUSES:
+        logger.warning(
+            "BOT_ADMIN_STATUS_UNKNOWN chat=%s status=%r; links will be suppressed",
+            chat_id,
+            status,
+        )
+    return is_admin
+
 
 @router.my_chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
 async def bot_joined_as_member(event: ChatMemberUpdated) -> None:
-    """Dispara quando o bot é adicionado ao grupo como membro comum (não admin)."""
+    """Record whether the bot entered a group with administrative status."""
     if event.chat.type not in ("group", "supergroup"):
         return
 
     if _is_admin(event.new_chat_member):
-        # Adicionado já como admin — atualiza cache e não reclama
-        _admin_cache[event.chat.id] = True
+        set_bot_admin_status(event.chat.id, True)
         return
 
-    # Membro comum — registra no cache e avisa
-    _admin_cache[event.chat.id] = False
+    set_bot_admin_status(event.chat.id, False)
     try:
         await event.bot.send_message(
             event.chat.id,
@@ -69,27 +126,23 @@ async def bot_joined_as_member(event: ChatMemberUpdated) -> None:
         )
 
 
-# ── bot é promovido a admin ───────────────────────────────────────────────────
-
 @router.my_chat_member()
 async def bot_promoted_to_admin(event: ChatMemberUpdated) -> None:
-    """Dispara quando o status do bot muda para administrator."""
-    old_status = getattr(event.old_chat_member, "status", "")
-    new_status = getattr(event.new_chat_member, "status", "")
+    """Refresh cached status on every membership-status transition."""
+    old_status = _status_value(event.old_chat_member)
+    new_status = _status_value(event.new_chat_member)
 
     if event.chat.type not in ("group", "supergroup"):
         return
 
-    # Atualiza cache em qualquer mudança de status
-    if new_status == "administrator":
-        _admin_cache[event.chat.id] = True
-    elif new_status in ("member", "restricted"):
-        _admin_cache[event.chat.id] = False
-    elif new_status in ("left", "kicked", "banned"):
-        _admin_cache.pop(event.chat.id, None)
+    if new_status in _ADMIN_STATUSES:
+        set_bot_admin_status(event.chat.id, True)
+    elif new_status in {"member", "restricted"}:
+        set_bot_admin_status(event.chat.id, False)
+    elif new_status in {"left", "kicked", "banned"}:
+        forget_bot_admin_status(event.chat.id)
 
-    # Anuncia só quando promovido (não-admin → admin)
-    if new_status != "administrator" or old_status == "administrator":
+    if new_status not in _ADMIN_STATUSES or old_status in _ADMIN_STATUSES:
         return
 
     try:
@@ -103,8 +156,6 @@ async def bot_promoted_to_admin(event: ChatMemberUpdated) -> None:
         )
 
 
-# ── /god — mostra permissões atuais do bot no grupo ──────────────────────────
-
 @router.message(Command("god"))
 async def god_command(message: Message) -> None:
     """/god: exibe o status de admin e as permissões do bot no grupo atual."""
@@ -112,21 +163,22 @@ async def god_command(message: Message) -> None:
         await message.answer("Use /god dentro de um grupo.")
         return
 
-    bot_id = message.bot.id
     try:
-        member = await message.bot.get_chat_member(message.chat.id, bot_id)
+        member = await message.bot.get_chat_member(message.chat.id, message.bot.id)
     except Exception:
         logger.debug("GOD_GET_CHAT_MEMBER_FAILED chat=%s", message.chat.id, exc_info=True)
+        set_bot_admin_status(message.chat.id, False)
         await message.answer("Não consegui verificar minhas permissões aqui.")
         return
 
-    status = getattr(member, "status", "")
+    status = _status_value(member)
+    is_admin = status in _ADMIN_STATUSES
+    set_bot_admin_status(message.chat.id, is_admin)
 
-    if status != "administrator":
+    if not is_admin:
         await message.answer("não to valendo nada mesmo 😩🤣")
         return
 
-    # É admin — lista o que pode fazer
     adm: ChatMemberAdministrator = member  # type: ignore[assignment]
     perms: list[str] = []
 
