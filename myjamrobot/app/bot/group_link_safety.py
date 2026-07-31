@@ -17,7 +17,6 @@ _HTML_ANCHOR_RE = re.compile(
     r'<a\b(?P<attrs>[^>]*)>(?P<label>.*?)</a\s*>', re.IGNORECASE | re.DOTALL
 )
 _HREF_RE = re.compile(r'href\s*=\s*(["\'])(?P<href>.*?)\1', re.IGNORECASE | re.DOTALL)
-_HTML_ORPHAN_ANCHOR_RE = re.compile(r"</?a\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]\n]+)\]\((?:\\.|[^)\n])+\)")
 _MARKDOWN_AUTOLINK_RE = re.compile(
     r"<(?:https?://|tg://(?!user\?id=)|mailto:|ftp://)[^>\s]+>", re.IGNORECASE
@@ -94,7 +93,6 @@ def strip_clickable_content(value: str | None, *, fallback: str = "") -> str:
     while previous != text:
         previous = text
         text = _HTML_ANCHOR_RE.sub(_strip_anchor, text)
-    text = _HTML_ORPHAN_ANCHOR_RE.sub("", text)
     text = _MARKDOWN_LINK_RE.sub(r"\1", text)
     text = _MARKDOWN_AUTOLINK_RE.sub("", text)
     text = _EMAIL_RE.sub("", text)
