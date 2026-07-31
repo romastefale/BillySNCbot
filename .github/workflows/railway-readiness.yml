@@ -1,0 +1,70 @@
+name: Railway readiness
+
+on:
+  pull_request:
+    paths:
+      - "myjamrobot/**"
+      - ".github/workflows/railway-readiness.yml"
+      - ".gitignore"
+  push:
+    branches:
+      - main
+    paths:
+      - "myjamrobot/**"
+      - ".github/workflows/railway-readiness.yml"
+      - ".gitignore"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-validation:
+    name: Python validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: myjamrobot
+    env:
+      PYTHONPATH: .
+      MYJAM_DATA_DIR: ${{ runner.temp }}/myjamrobot-data
+      MYJAM_DATABASE_URL: sqlite:///${{ runner.temp }}/myjamrobot-data/app.db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: myjamrobot/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Prepare temporary data directory
+        run: mkdir -p "$MYJAM_DATA_DIR"
+
+      - name: Compile Python sources
+        run: python -m compileall app scripts tests
+
+      - name: Run smoke imports
+        run: python scripts/smoke_imports.py
+
+      - name: Run test suite
+        run: pytest -q
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --file myjamrobot/Dockerfile --tag billysncbot:ci myjamrobot
