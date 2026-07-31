@@ -1,8 +1,8 @@
 """Verifica e mantém o status administrativo do próprio bot em grupos.
 
-A segurança de links usa este módulo como fonte de capacidade. Estado
-administrativo desconhecido ou falha na consulta é tratado como não-admin para
-que o bot nunca publique links por suposição otimista.
+A segurança de links usa este módulo como fonte de capacidade. Antes de qualquer
+saída clicável, o status pode ser confirmado novamente pela API do Telegram.
+Falha ou estado desconhecido é tratado como não-admin.
 """
 from __future__ import annotations
 
@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 router = Router(name="group_admin")
 
 # chat_id -> True (administrator/creator) | False (membro comum/restrito).
-# Ausência significa desconhecido e deve ser resolvida pela API. Consumidores
-# síncronos usam False como padrão seguro.
 _admin_cache: dict[int, bool] = {}
 _ADMIN_STATUSES = {"administrator", "creator"}
 _NON_ADMIN_STATUSES = {"member", "restricted", "left", "kicked", "banned"}
@@ -44,21 +42,35 @@ def forget_bot_admin_status(chat_id: Any) -> None:
 
 
 def bot_is_admin_in(chat_id: Any) -> bool:
-    """Return cached status, defaulting safely to non-admin when unknown."""
+    """Return the legacy cached hint used by older command-specific code.
+
+    Unknown remains optimistic here to avoid degrading an administrator group
+    before the central guard runs. This helper never authorizes final linked
+    output: ``resolve_bot_is_admin(..., require_fresh=True)`` does that.
+    """
     numeric = _numeric_chat_id(chat_id)
     if numeric is None:
         return False
-    return _admin_cache.get(numeric, False)
+    return _admin_cache.get(numeric, True)
 
 
 def _is_admin(member: Any) -> bool:
     return str(getattr(member, "status", "")) in _ADMIN_STATUSES
 
 
-async def resolve_bot_is_admin(bot: Bot, chat_id: Any) -> bool:
-    """Resolve the bot's current status, failing closed on every uncertainty."""
+async def resolve_bot_is_admin(
+    bot: Bot,
+    chat_id: Any,
+    *,
+    require_fresh: bool = False,
+) -> bool:
+    """Resolve current status and fail closed on every uncertainty.
+
+    ``require_fresh=True`` bypasses both positive and negative cached values.
+    The outbound link guard uses this mode before every clickable group output.
+    """
     numeric = _numeric_chat_id(chat_id)
-    if numeric is not None and numeric in _admin_cache:
+    if not require_fresh and numeric is not None and numeric in _admin_cache:
         return _admin_cache[numeric]
 
     try:
