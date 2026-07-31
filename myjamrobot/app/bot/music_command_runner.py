@@ -950,7 +950,9 @@ async def _execute_albnow_dm(message) -> None:
     if not data:
         await message.answer("Nada tocando agora.")
         return
-    caption = _format_albnow(message.from_user.full_name, message.from_user.id, data)
+    from app.bot.telegram import user_display_label
+
+    caption = _format_albnow(user_display_label(message.from_user), message.from_user.id, data)
     cover = data.get("album_image_url") or data.get("cover_url")
     if cover:
         sent = await _send_cached_cover_or_text(

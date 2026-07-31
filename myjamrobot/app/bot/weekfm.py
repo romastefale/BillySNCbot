@@ -4,6 +4,7 @@ import asyncio
 import html
 import logging
 
+from app.bot.telegram import user_display_label
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
@@ -95,7 +96,7 @@ async def weekfm(message: Message) -> None:
         _finish_weekfm(
             status,
             user_id=message.from_user.id,
-            display_name=message.from_user.full_name or "Usuário",
+            display_name=user_display_label(message.from_user),
             raw_week=raw_week,
         )
     )

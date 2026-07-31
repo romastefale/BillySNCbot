@@ -114,7 +114,9 @@ def _build_caption(data: dict, user_name: str, user_id: int) -> str:
     album_raw = data.get("album") or ""
     artista_raw = data.get("artista") or ""
 
-    safe_name = html.escape(user_name or "Usuário")
+    from app.bot.telegram import _visible_name
+
+    safe_name = html.escape(_visible_name(user_name) or "Usuário")
     user_link = html.escape(f"tg://user?id={user_id}", quote=True)
     mention = f'<b><a href="{user_link}">{safe_name}</a></b>'
 
@@ -162,7 +164,9 @@ async def _show_preview(target: Message, state: FSMContext) -> None:
     await state.set_state(TidddFlow.preview)
     data = await state.get_data()
     user = target.from_user
-    user_name = (user.full_name or "Usuário") if user else "Usuário"
+    from app.bot.telegram import user_display_label
+
+    user_name = user_display_label(user) if user else "Usuário"
     user_id = user.id if user else 0
     caption = _build_caption(data, user_name, user_id)
     capa = data.get("capa")  # (tipo, file_id) ou None
@@ -226,19 +230,25 @@ async def _bot_can_post(bot, group_id: int) -> tuple[bool, bool]:
 
 
 async def _send_card_to(bot, chat_id: int, caption: str, capa) -> None:
-    """Envia o card (foto/vídeo/animação/texto) para o chat_id indicado."""
+    """Envia o card (foto/vídeo/animação/texto) para o chat_id indicado.
+
+    Depois de enviar, o bot reage 🔥 no próprio post (mesmo comportamento
+    dos cards musicais)."""
     if capa:
         tipo, file_id = capa
         if tipo == "photo":
-            await bot.send_photo(chat_id, photo=file_id, caption=caption, parse_mode="HTML")
+            sent = await bot.send_photo(chat_id, photo=file_id, caption=caption, parse_mode="HTML")
         elif tipo == "video":
-            await bot.send_video(chat_id, video=file_id, caption=caption, parse_mode="HTML")
+            sent = await bot.send_video(chat_id, video=file_id, caption=caption, parse_mode="HTML")
         elif tipo == "animation":
-            await bot.send_animation(chat_id, animation=file_id, caption=caption, parse_mode="HTML")
+            sent = await bot.send_animation(chat_id, animation=file_id, caption=caption, parse_mode="HTML")
         else:
-            await bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
+            sent = await bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
     else:
-        await bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
+        sent = await bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=True)
+    from app.bot.telegram import _react_to_own_card, _CARD_EMOJI_DEFAULT
+
+    await _react_to_own_card(bot, sent.chat.id, sent.message_id, _CARD_EMOJI_DEFAULT)
 
 
 async def _send_final_card(call: CallbackQuery, state: FSMContext) -> None:
@@ -247,7 +257,9 @@ async def _send_final_card(call: CallbackQuery, state: FSMContext) -> None:
     # Não limpa o estado aqui — o fluxo de publicação (publicar state) faz isso.
 
     user = call.from_user
-    user_name = (user.full_name or "Usuário") if user else "Usuário"
+    from app.bot.telegram import user_display_label
+
+    user_name = user_display_label(user) if user else "Usuário"
     user_id = user.id if user else 0
     caption = _build_caption(data, user_name, user_id)
     capa = data.get("capa")

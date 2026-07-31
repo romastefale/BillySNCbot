@@ -316,8 +316,10 @@ async def _display_name(bot: Any, user_id: int, lastfm_username: str | None = No
         return lastfm_username
 
     try:
+        from app.bot.telegram import _visible_name
+
         chat = await bot.get_chat(user_id)
-        name = getattr(chat, "full_name", None) or getattr(chat, "first_name", None)
+        name = _visible_name(getattr(chat, "full_name", None) or getattr(chat, "first_name", None))
         if name:
             return name
         username = getattr(chat, "username", None)

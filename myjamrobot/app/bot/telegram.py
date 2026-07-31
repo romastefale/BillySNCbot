@@ -78,7 +78,7 @@ async def _react_to_own_card(bot, chat_id: int, message_id: int, emoji: str) -> 
             reaction=[ReactionTypeEmoji(emoji=emoji)],
         )
     except Exception:
-        logger.debug(
+        logger.warning(
             "OWN_CARD_REACT_FAILED chat=%s msg=%s emoji=%s",
             chat_id, message_id, emoji, exc_info=True,
         )
@@ -184,10 +184,42 @@ def _track_label(track: dict) -> tuple[str, str, str, str | None]:
     return track_name, artist, url, str(cover) if cover else None
 
 
+# Caracteres invisíveis/de formatação que alguns users usam no nome do Telegram
+# (zero-width, variation selectors, braille em branco, Hangul filler etc).
+_INVISIBLE_NAME_RE = re.compile(
+    r"[\u0000-\u001f\u007f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e"
+    r"\u2000-\u200f\u2028-\u202f\u205f-\u206f\u2800\u3000\u3164\ufe00-\ufe0f"
+    r"\ufeff\uffa0\ufff0-\uffff]+"
+)
+
+
+def _visible_name(raw: object) -> str:
+    """Remove caracteres invisíveis/espaços e retorna o nome realmente visível."""
+    if not raw:
+        return ""
+    return _INVISIBLE_NAME_RE.sub("", str(raw)).strip()
+
+
+def user_display_label(user: object) -> str:
+    """Nome exibível de um user do Telegram.
+
+    Se o nome for vazio ou composto só de caracteres invisíveis, cai para
+    @username; sem username, usa 'Usuário' (que ainda vira link tg://user
+    clicável nos cards, então a marcação continua funcionando).
+    """
+    name = _visible_name(getattr(user, "full_name", None))
+    if name:
+        return name
+    username = getattr(user, "username", None)
+    if username:
+        return f"@{username}"
+    return "Usuário"
+
+
 def _user_mention(message: Message) -> str:
     if not message.from_user:
         return "Usuário"
-    display_name = html.escape(message.from_user.full_name or "Usuário")
+    display_name = html.escape(user_display_label(message.from_user))
     return f'<b><a href="tg://user?id={message.from_user.id}">{display_name}</a></b>'
 
 
@@ -390,7 +422,7 @@ async def build_playing_payload_for_user(
     user_total_likes = await likes_service.get_user_received_likes(user_id)
     liked = await likes_service.is_track_liked(user_id, track_id, owner_user_id=user_id)
 
-    display_name = html.escape(display_name_raw or "Usuário")
+    display_name = html.escape(_visible_name(display_name_raw) or "Usuário")
     user_link = f"tg://user?id={user_id}"
     track_name, artist, track_url, cover = _track_label(track)
     track_part = f'<a href="{track_url}">{track_name}</a>' if track_url else track_name
@@ -429,7 +461,7 @@ async def build_playing_payload(
         return None
     return await build_playing_payload_for_user(
         message.from_user.id,
-        message.from_user.full_name or "Usuário",
+        user_display_label(message.from_user),
         track,
     )
 
@@ -451,7 +483,7 @@ async def build_tly_payload(
     if not message.from_user:
         return None
     user_id = message.from_user.id
-    display_name_raw = message.from_user.full_name or "Usuário"
+    display_name_raw = user_display_label(message.from_user)
 
     track_id = str(track.get("track_id") or "").strip()
     if not track_id:
@@ -475,7 +507,7 @@ async def build_tly_payload(
 
     track_name, artist, track_url, cover = _track_label(track)
     track_part = f'<a href="{track_url}">{track_name}</a>' if track_url else track_name
-    safe_name = html.escape(display_name_raw or "Usuário")
+    safe_name = html.escape(_visible_name(display_name_raw) or "Usuário")
     user_link = f"tg://user?id={user_id}"
     name_part = f'<b><a href="{html.escape(user_link, quote=True)}">{safe_name}</a></b>'
     if isinstance(total_plays, int) and total_plays > 0:
@@ -863,7 +895,7 @@ def _register_handlers(dp: Dispatcher) -> None:
             total_plays, _plays_source = await _resolve_play_button_count(query.from_user.id, track_id, artist_raw, track_name_raw)
         except Exception:
             logger.debug("INLINE_PUBLIC_PLAYING_COUNT_SKIPPED user=%s track=%s", query.from_user.id, track_id, exc_info=True)
-        who = html.escape(query.from_user.full_name or "Usuário")
+        who = html.escape(user_display_label(query.from_user))
         user_link = f"tg://user?id={query.from_user.id}"
         who_part = f'<b><a href="{html.escape(user_link, quote=True)}">{who}</a></b>'
         track_part = f'<a href="{track_url}">{track_name}</a>' if track_url else track_name
@@ -904,7 +936,7 @@ def _register_handlers(dp: Dispatcher) -> None:
         for hit in hits:
             if not hit.cover_big:
                 continue
-            name_part = _inline_public_name_style(query.from_user.full_name or "Usuário")
+            name_part = _inline_public_name_style(user_display_label(query.from_user))
             caption = f"{name_part}\n♫ {html.escape(hit.title)} — {html.escape(hit.artist)}"
             results.append(
                 await _inline_photo_result_for_cover(
