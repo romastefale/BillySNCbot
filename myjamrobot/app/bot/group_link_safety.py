@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import logging
 import re
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup
@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 _ORIGINAL_CALL_ATTR = "_myjam_group_link_safety_original_call"
 _INSTALLED_ATTR = "_myjam_group_link_safety_installed"
 
-# Telegram renders all of these as clickable destinations. The sanitizer keeps
-# human-readable labels but removes the destination itself.
+# Telegram renders these forms as clickable destinations. Labels are preserved
+# whenever possible, while the destination is removed.
 _HTML_ANCHOR_RE = re.compile(r"<a\b[^>]*>(.*?)</a\s*>", re.IGNORECASE | re.DOTALL)
 _HTML_ORPHAN_ANCHOR_RE = re.compile(r"</?a\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]\n]+)\]\((?:\\.|[^)\n])+\)")
@@ -45,6 +45,14 @@ _ENTITY_FIELDS = (
     "question_entities",
     "explanation_entities",
 )
+_CLICKABLE_ENTITY_TYPES = {
+    "url",
+    "text_link",
+    "text_mention",
+    "mention",
+    "email",
+    "phone_number",
+}
 
 
 def _clean_spacing(value: str) -> str:
@@ -61,14 +69,24 @@ def _has_visible_text(value: str) -> bool:
     return bool(plain)
 
 
-def strip_clickable_content(value: str | None, *, fallback: str = "") -> str:
-    """Remove destinations while retaining readable labels and formatting.
+def _string_contains_clickable(value: str | None) -> bool:
+    text = str(value or "")
+    return any(
+        pattern.search(text) is not None
+        for pattern in (
+            _HTML_ANCHOR_RE,
+            _MARKDOWN_LINK_RE,
+            _MARKDOWN_AUTOLINK_RE,
+            _EMAIL_RE,
+            _SCHEME_URL_RE,
+            _BARE_DOMAIN_RE,
+            _PLAIN_MENTION_RE,
+        )
+    )
 
-    The function is deliberately broader than the repository's existing
-    per-command regexes: it removes HTML/Markdown links, URL schemes, bare
-    domains, e-mail addresses and plain Telegram @mentions. Bot commands such
-    as /help remain untouched.
-    """
+
+def strip_clickable_content(value: str | None, *, fallback: str = "") -> str:
+    """Remove clickable destinations while retaining readable labels."""
     text = str(value or "")
     previous = None
     while previous != text:
@@ -87,14 +105,28 @@ def strip_clickable_content(value: str | None, *, fallback: str = "") -> str:
     return fallback
 
 
+def _button_is_callback_only(button: Any) -> bool:
+    return bool(getattr(button, "callback_data", None))
+
+
+def _keyboard_contains_destination(markup: Any) -> bool:
+    if not isinstance(markup, InlineKeyboardMarkup):
+        return False
+    return any(
+        not _button_is_callback_only(button)
+        for row in markup.inline_keyboard
+        for button in row
+    )
+
+
 def sanitize_inline_keyboard(markup: Any) -> Any:
-    """Keep only callback buttons; remove every destination-opening button."""
+    """Keep callback_data buttons and remove destination-opening buttons."""
     if not isinstance(markup, InlineKeyboardMarkup):
         return markup
 
     rows = []
     for row in markup.inline_keyboard:
-        callbacks = [button for button in row if getattr(button, "callback_data", None)]
+        callbacks = [button for button in row if _button_is_callback_only(button)]
         if callbacks:
             rows.append(callbacks)
     if not rows:
@@ -119,12 +151,61 @@ def _copy_model(value: Any, updates: dict[str, Any]) -> Any:
     return value
 
 
+def _iter_nested(value: Any) -> Iterable[Any]:
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        return value
+    return (value,)
+
+
+def _entity_type(entity: Any) -> str:
+    value = getattr(entity, "type", "")
+    enum_value = getattr(value, "value", value)
+    return str(enum_value).lower()
+
+
+def _entities_contain_clickable(entities: Any) -> bool:
+    return bool(entities) and any(
+        _entity_type(entity) in _CLICKABLE_ENTITY_TYPES for entity in entities
+    )
+
+
+def _nested_contains_clickable(value: Any) -> bool:
+    for item in _iter_nested(value):
+        if _string_contains_clickable(getattr(item, "caption", None)):
+            return True
+        if _string_contains_clickable(getattr(item, "text", None)):
+            return True
+        if _entities_contain_clickable(getattr(item, "caption_entities", None)):
+            return True
+        if _entities_contain_clickable(getattr(item, "text_entities", None)):
+            return True
+    return False
+
+
+def method_contains_clickable_content(method: Any) -> bool:
+    for field in _VISIBLE_TEXT_FIELDS:
+        if _string_contains_clickable(getattr(method, field, None)):
+            return True
+    for field in _ENTITY_FIELDS:
+        if _entities_contain_clickable(getattr(method, field, None)):
+            return True
+    if _keyboard_contains_destination(getattr(method, "reply_markup", None)):
+        return True
+    if _nested_contains_clickable(getattr(method, "media", None)):
+        return True
+    if _nested_contains_clickable(getattr(method, "options", None)):
+        return True
+    return False
+
+
 def _sanitize_nested_visible_model(value: Any) -> Any:
     if value is None:
         return None
     if isinstance(value, (list, tuple)):
         sanitized = [_sanitize_nested_visible_model(item) for item in value]
-        return type(value)(sanitized) if isinstance(value, tuple) else sanitized
+        return tuple(sanitized) if isinstance(value, tuple) else sanitized
 
     updates: dict[str, Any] = {}
     caption = getattr(value, "caption", None)
@@ -144,7 +225,7 @@ def _sanitize_nested_visible_model(value: Any) -> Any:
 
 
 def sanitize_outbound_method(method: Any) -> Any:
-    """Return a copy of an aiogram method with all clickable output removed."""
+    """Copy an aiogram method with all clickable output removed."""
     updates: dict[str, Any] = {}
 
     for field in _VISIBLE_TEXT_FIELDS:
@@ -153,11 +234,10 @@ def sanitize_outbound_method(method: Any) -> Any:
             continue
         fallback = "" if field == "caption" else "Conteúdo sem link."
         cleaned = strip_clickable_content(value, fallback=fallback)
-        updates[field] = cleaned or None if field == "caption" else cleaned
+        updates[field] = (cleaned or None) if field == "caption" else cleaned
 
-    # Entity offsets become invalid when URLs are removed. Clearing the entity
-    # lists also removes text_link/text_mention destinations while preserving
-    # the visible string.
+    # String edits invalidate UTF-16 entity offsets. Clearing entity lists also
+    # removes explicit text_link/text_mention destinations.
     for field in _ENTITY_FIELDS:
         if getattr(method, field, None) is not None:
             updates[field] = None
@@ -180,19 +260,6 @@ def sanitize_outbound_method(method: Any) -> Any:
     return _copy_model(method, updates)
 
 
-def _has_visible_payload(method: Any) -> bool:
-    if any(getattr(method, field, None) is not None for field in _VISIBLE_TEXT_FIELDS):
-        return True
-    if getattr(method, "reply_markup", None) is not None:
-        return True
-    media = getattr(method, "media", None)
-    if media is not None:
-        if isinstance(media, (list, tuple)):
-            return any(getattr(item, "caption", None) is not None for item in media)
-        return getattr(media, "caption", None) is not None or getattr(method, "reply_markup", None) is not None
-    return False
-
-
 def _private_numeric_chat(chat_id: Any) -> bool:
     try:
         return int(chat_id) > 0
@@ -201,8 +268,8 @@ def _private_numeric_chat(chat_id: Any) -> bool:
 
 
 async def protect_outbound_method(bot: Bot, method: Any) -> Any:
-    """Sanitize an outbound method only for groups without confirmed admin."""
-    if not _has_visible_payload(method):
+    """Sanitize clickable output unless group administration is freshly proven."""
+    if not method_contains_clickable_content(method):
         return method
 
     chat_id = getattr(method, "chat_id", None)
@@ -211,7 +278,9 @@ async def protect_outbound_method(bot: Bot, method: Any) -> Any:
 
     from app.bot.group_admin import resolve_bot_is_admin
 
-    if await resolve_bot_is_admin(bot, chat_id):
+    # A positive cache is not sufficient: every linked output requires a fresh
+    # Telegram confirmation. Any exception or unknown status returns False.
+    if await resolve_bot_is_admin(bot, chat_id, require_fresh=True):
         return method
 
     sanitized = sanitize_outbound_method(method)
