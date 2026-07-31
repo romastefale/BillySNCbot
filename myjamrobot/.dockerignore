@@ -15,5 +15,6 @@ __pycache__
 *.sqlite3
 .data
 data
+tests
 playwright-report
 test-results
