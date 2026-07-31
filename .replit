@@ -3,6 +3,8 @@ modules = ["nodejs-24", "python-3.11"]
 [deployment]
 router = "application"
 deploymentTarget = "vm"
+run = ["bash", "-c", "cd myjamrobot && python -m app.bootstrap"]
+build = ["pnpm", "install", "--frozen-lockfile"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
