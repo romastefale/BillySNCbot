@@ -69,12 +69,16 @@ _GROUP_COMMANDS: tuple[CommandDef, ...] = (
 )
 
 _OWNER_ONLY_COMMANDS: tuple[CommandDef, ...] = (
+    # /tnow também funciona como mosaico universal quando o owner o executa na DM.
+    CommandDef("tnow", "Mosaico universal na DM"),
     CommandDef("tnowall", "Mosaico consolidado por DM"),
     CommandDef("songchartsall", "Ranking consolidado por DM"),
     CommandDef("weekall", "Ranking semanal consolidado"),
     CommandDef("monthall", "Ranking mensal consolidado"),
     CommandDef("tmn", "Cadastrar usuário Last.fm manualmente"),
     CommandDef("tpv", "Privacidade visual no mosaico"),
+    CommandDef("lfmcheckauth", "Diagnosticar credenciais Last.fm"),
+    CommandDef("lfmimportcsv", "Importar scrobbles Last.fm por CSV"),
     CommandDef("onoff", "Silenciar usuários comuns"),
     CommandDef("legacy", "Restringir logins antigos"),
     CommandDef("listening", "Exportar banco completo"),
@@ -99,13 +103,29 @@ def _owner_menu_commands() -> tuple[CommandDef, ...]:
     return tuple(visible)
 
 
+def private_command_definitions(*, is_owner: bool) -> tuple[CommandDef, ...]:
+    """Return exactly the command definitions published in a private chat."""
+    return _owner_menu_commands() if is_owner else _visible_commands(_PRIVATE_COMMANDS)
+
+
+def private_help_text(*, is_owner: bool) -> str:
+    """Render /help from the same definitions used by Telegram's private menu."""
+    commands = private_command_definitions(is_owner=is_owner)
+    lines = ["<b>Comandos da sua DM</b>", ""]
+    lines.extend(
+        f"<code>/{item.command}</code> — {item.description}."
+        for item in commands
+    )
+    return "\n".join(lines)
+
+
 def _to_bot_commands(commands: tuple[CommandDef, ...]) -> list[BotCommand]:
     return [BotCommand(command=item.command, description=item.description[:256]) for item in commands]
 
 
 def command_scope_summary() -> dict[str, object]:
-    visible_private = [item.command for item in _visible_commands(_PRIVATE_COMMANDS)]
-    visible_owner = [item.command for item in _owner_menu_commands()]
+    visible_private = [item.command for item in private_command_definitions(is_owner=False)]
+    visible_owner = [item.command for item in private_command_definitions(is_owner=True)]
     return {
         # Catálogos históricos preservados para testes e scripts existentes.
         "public": [item.command for item in _PUBLIC_COMMANDS],
@@ -122,8 +142,8 @@ def command_scope_summary() -> dict[str, object]:
 
 async def setup_bot_commands(bot: Bot) -> None:
     ensure_allow_runtime()
-    private_commands = _to_bot_commands(_visible_commands(_PRIVATE_COMMANDS))
-    owner_commands = _to_bot_commands(_owner_menu_commands())
+    private_commands = _to_bot_commands(private_command_definitions(is_owner=False))
+    owner_commands = _to_bot_commands(private_command_definitions(is_owner=True))
     try:
         # Sem comandos default, grupos não herdam o catálogo privado ao abrir "/".
         await bot.delete_my_commands(scope=BotCommandScopeDefault())
