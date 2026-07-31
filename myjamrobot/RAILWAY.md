@@ -167,3 +167,14 @@ A entrega é considerada concluída somente quando:
 - Spotify, Last.fm, Playwright, imagens e `ffmpeg` estiverem homologados;
 - dados sobreviverem a restart e redeploy;
 - o serviço antigo não disputar o webhook.
+
+## 10. Diagnóstico do CI
+
+Se os checks `Python validation` e `Docker build` não aparecerem no pull request:
+
+1. confirme nas configurações do repositório que GitHub Actions está habilitado;
+2. confirme que ações oficiais da GitHub são permitidas;
+3. abra a aba **Actions** e execute manualmente o workflow `Railway readiness` por `workflow_dispatch`;
+4. não faça merge até os dois jobs concluírem com sucesso.
+
+A ausência de checks não deve ser interpretada como aprovação.
