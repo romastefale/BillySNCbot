@@ -169,6 +169,12 @@ def install_allow_ux_filters() -> None:
             return filter_ux_text(original_start(message))
 
         def _help_text_filtered(message):
+            if getattr(getattr(message, "chat", None), "type", None) == "private":
+                from app.bot.setup_commands import private_help_text
+                from app.config.settings import is_code_owner
+
+                user_id = getattr(getattr(message, "from_user", None), "id", None)
+                return private_help_text(is_owner=is_code_owner(user_id))
             return filter_ux_text(original_help(message))
 
         telegram_module._start_text = _start_text_filtered
