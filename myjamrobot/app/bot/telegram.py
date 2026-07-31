@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import uuid
 
 from aiogram import Dispatcher, F
@@ -17,6 +18,7 @@ from aiogram.types import (
     ReactionTypeEmoji,
 )
 
+from app.bot.group_admin import bot_is_admin_in
 from app.bot.intent import detect_intent
 from app.config.settings import LASTFM_API_KEY, is_code_owner
 from app.services.connection_check import connect_hint_for, is_user_connected
@@ -159,6 +161,19 @@ async def _inline_photo_result_for_cover(
         caption=caption,
         parse_mode="HTML",
     )
+
+
+_HTTP_LINK_RE = re.compile(r'<a href="https?://[^"]*">([^<]*)</a>')
+
+
+def _strip_http_links(text: str) -> str:
+    """Remove hrefs http(s) de tags <a>, mantendo o texto âncora.
+
+    Links tg:// (menções de usuário) são preservados — o Telegram nunca os
+    filtra em grupos. Apenas links externos (Spotify, etc.) são removidos.
+    Usado quando o bot é membro comum e pode ser banido por enviar links.
+    """
+    return _HTTP_LINK_RE.sub(r"\1", text)
 
 
 def _track_label(track: dict) -> tuple[str, str, str, str | None]:
@@ -506,6 +521,10 @@ async def _send_playing(message: Message) -> None:
         await message.answer("Erro ao identificar a música.")
         return
     track_id, caption, cover, keyboard, card_emoji = payload
+
+    # Escopo reduzido: sem link Spotify quando o bot é membro comum no grupo.
+    if message.chat.type in ("group", "supergroup") and not bot_is_admin_in(message.chat.id):
+        caption = _strip_http_links(caption)
 
     if cover:
         photo = await cover_cache_service.resolve_photo(

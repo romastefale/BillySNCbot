@@ -23,6 +23,21 @@ from aiogram.types import ChatMemberAdministrator, ChatMemberUpdated, Message
 logger = logging.getLogger(__name__)
 router = Router(name="group_admin")
 
+# Cache in-memory: chat_id → True (admin) | False (membro comum)
+# Populado pelos eventos my_chat_member. Ausência = nunca vimos o evento,
+# tratamos como admin para não suprimir links em grupos normais.
+_admin_cache: dict[int, bool] = {}
+
+
+def bot_is_admin_in(chat_id: int) -> bool:
+    """Retorna True se o bot é admin no grupo, False se membro comum.
+
+    Na ausência de informação (grupo nunca visto via my_chat_member), assume
+    True — evita strip desnecessário em grupos onde o bot foi adicionado
+    antes do handler estar ativo.
+    """
+    return _admin_cache.get(chat_id, True)
+
 
 def _is_admin(member) -> bool:
     return getattr(member, "status", "") == "administrator"
@@ -33,11 +48,16 @@ def _is_admin(member) -> bool:
 @router.my_chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
 async def bot_joined_as_member(event: ChatMemberUpdated) -> None:
     """Dispara quando o bot é adicionado ao grupo como membro comum (não admin)."""
-    if _is_admin(event.new_chat_member):
-        # Foi adicionado já como admin — não reclamar
-        return
     if event.chat.type not in ("group", "supergroup"):
         return
+
+    if _is_admin(event.new_chat_member):
+        # Adicionado já como admin — atualiza cache e não reclama
+        _admin_cache[event.chat.id] = True
+        return
+
+    # Membro comum — registra no cache e avisa
+    _admin_cache[event.chat.id] = False
     try:
         await event.bot.send_message(
             event.chat.id,
@@ -57,12 +77,19 @@ async def bot_promoted_to_admin(event: ChatMemberUpdated) -> None:
     old_status = getattr(event.old_chat_member, "status", "")
     new_status = getattr(event.new_chat_member, "status", "")
 
-    # Só interessa a promoção de não-admin → admin
-    if new_status != "administrator":
-        return
-    if old_status == "administrator":
-        return  # já era admin, não anunciar de novo
     if event.chat.type not in ("group", "supergroup"):
+        return
+
+    # Atualiza cache em qualquer mudança de status
+    if new_status == "administrator":
+        _admin_cache[event.chat.id] = True
+    elif new_status in ("member", "restricted"):
+        _admin_cache[event.chat.id] = False
+    elif new_status in ("left", "kicked", "banned"):
+        _admin_cache.pop(event.chat.id, None)
+
+    # Anuncia só quando promovido (não-admin → admin)
+    if new_status != "administrator" or old_status == "administrator":
         return
 
     try:
