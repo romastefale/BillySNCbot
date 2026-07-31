@@ -15,6 +15,7 @@ env/
 
 # Local/runtime data
 /data/
+/.data/
 *.db
 *.sqlite
 *.sqlite3
