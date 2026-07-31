@@ -57,6 +57,7 @@ _GROUP_COMMANDS: tuple[CommandDef, ...] = (
     CommandDef("tnow", "Mosaico de ouvintes do grupo"),
     CommandDef("tiddd", "Criar Track ID manual no grupo"),
     CommandDef("hitmo", "Converter vídeo em áudio de voz"),
+    CommandDef("god", "Ver permissões do bot no grupo"),
     CommandDef("myself", "Menu de extratos pessoais"),
     CommandDef("weekfm", "Extrato semanal Last.fm"),
     CommandDef("monthfm", "Extrato mensal Last.fm"),

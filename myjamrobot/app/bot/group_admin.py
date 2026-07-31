@@ -2,7 +2,8 @@
 
 Comportamento:
 - Bot entra sem admin → manda a frase de lamento uma única vez e fica quieto.
-- Bot é promovido a admin → anuncia que agora está operacional.
+- Bot é promovido a admin → anuncia com referência ao /god.
+- /god → mostra as permissões atuais do bot no grupo (só funciona em grupo).
 
 Handler de my_chat_member (aiogram3): dispara somente quando o STATUS DO
 PRÓPRIO BOT muda num chat. Nunca confundir com chat_member (status de outros
@@ -16,16 +17,11 @@ from __future__ import annotations
 import logging
 
 from aiogram import Router
-from aiogram.filters import IS_MEMBER, IS_NOT_MEMBER, ChatMemberUpdatedFilter
-from aiogram.types import ChatMemberUpdated
+from aiogram.filters import IS_MEMBER, IS_NOT_MEMBER, ChatMemberUpdatedFilter, Command
+from aiogram.types import ChatMemberAdministrator, ChatMemberUpdated, Message
 
 logger = logging.getLogger(__name__)
 router = Router(name="group_admin")
-
-# Statuses que indicam presença sem privilégio de admin
-_NON_ADMIN_STATUSES = {"member", "restricted"}
-# Statuses que indicam ausência
-_ABSENT_STATUSES = {"left", "kicked", "banned"}
 
 
 def _is_admin(member) -> bool:
@@ -72,9 +68,62 @@ async def bot_promoted_to_admin(event: ChatMemberUpdated) -> None:
     try:
         await event.bot.send_message(
             event.chat.id,
-            "Agora sim, tô valendo! 💪🎶",
+            "Agora sim, tô valendo! 💪🎶\n/god",
         )
     except Exception:
         logger.debug(
             "GROUP_ADMIN_PROMOTED_MSG_FAILED chat=%s", event.chat.id, exc_info=True
         )
+
+
+# ── /god — mostra permissões atuais do bot no grupo ──────────────────────────
+
+@router.message(Command("god"))
+async def god_command(message: Message) -> None:
+    """/god: exibe o status de admin e as permissões do bot no grupo atual."""
+    if message.chat.type not in ("group", "supergroup"):
+        await message.answer("Use /god dentro de um grupo.")
+        return
+
+    bot_id = message.bot.id
+    try:
+        member = await message.bot.get_chat_member(message.chat.id, bot_id)
+    except Exception:
+        logger.debug("GOD_GET_CHAT_MEMBER_FAILED chat=%s", message.chat.id, exc_info=True)
+        await message.answer("Não consegui verificar minhas permissões aqui.")
+        return
+
+    status = getattr(member, "status", "")
+
+    if status != "administrator":
+        await message.answer("não to valendo nada mesmo 😩🤣")
+        return
+
+    # É admin — lista o que pode fazer
+    adm: ChatMemberAdministrator = member  # type: ignore[assignment]
+    perms: list[str] = []
+
+    if getattr(adm, "can_delete_messages", False):
+        perms.append("🗑 Apagar mensagens")
+    if getattr(adm, "can_restrict_members", False):
+        perms.append("🔇 Restringir membros")
+    if getattr(adm, "can_pin_messages", False):
+        perms.append("📌 Fixar mensagens")
+    if getattr(adm, "can_invite_users", False):
+        perms.append("🔗 Adicionar membros")
+    if getattr(adm, "can_manage_video_chats", False):
+        perms.append("🎙 Gerenciar videochamadas")
+    if getattr(adm, "can_change_info", False):
+        perms.append("✏️ Alterar info do grupo")
+    if getattr(adm, "can_promote_members", False):
+        perms.append("👑 Promover admins")
+    if getattr(adm, "is_anonymous", False):
+        perms.append("🕶 Anônimo")
+
+    if perms:
+        body = "\n".join(f"• {p}" for p in perms)
+        text = f"⚡ <b>God mode ativo</b>\n\n{body}"
+    else:
+        text = "⚡ <b>Sou admin</b>, mas sem permissões extras configuradas."
+
+    await message.answer(text, parse_mode="HTML")
