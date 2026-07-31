@@ -30,3 +30,24 @@ NODE_ENV = "production"
 
 [services.production.health.startup]
 path = "/api/healthz"
+
+[[services]]
+localPort = 8000
+name = "billy som na caixa"
+paths = ["/"]
+
+[services.development]
+# Em dev o bot já roda via workflow "billy som na caixa". Este watchdog aguarda
+# ele estar saudável e mantém o serviço marcado como ativo sem conflito de porta.
+run = "bash -c 'until curl -sf http://localhost:8000/healthz >/dev/null 2>&1; do sleep 3; done; while curl -sf http://localhost:8000/healthz >/dev/null 2>&1; do sleep 15; done'"
+
+[services.production]
+
+[services.production.run]
+args = ["bash", "-c", "cd /home/runner/workspace/myjamrobot && python -m app.bootstrap"]
+
+[services.production.run.env]
+PORT = "8000"
+
+[services.production.health.startup]
+path = "/healthz"
