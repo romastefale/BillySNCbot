@@ -37,13 +37,13 @@ def test_hitmo_module_imports_without_error() -> None:
 # ── StatesGroup: estados corretos ─────────────────────────────────────────────
 
 def test_tidddflow_states_are_registered() -> None:
-    """TidddFlow deve ter exatamente os estados musica/album/artista/capa/preview."""
+    """TidddFlow deve registrar coleta, preview e publicação em grupo."""
     from app.bot.tiddd import TidddFlow
     from aiogram.fsm.state import StatesGroup
 
     assert issubclass(TidddFlow, StatesGroup)
     state_names = {s.state.split(":")[1] for s in TidddFlow.__states__}
-    assert state_names == {"musica", "album", "artista", "capa", "preview"}, (
+    assert state_names == {"musica", "album", "artista", "capa", "preview", "publicar"}, (
         f"Estados inesperados em TidddFlow: {state_names}"
     )
 

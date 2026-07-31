@@ -47,3 +47,32 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local and persistent data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/myjamrobot/.data/
+/myjamrobot/data/
+
+# Playwright and test artifacts
+playwright-report/
+test-results/
